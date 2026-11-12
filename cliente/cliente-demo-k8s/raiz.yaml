@@ -1,0 +1,19 @@
+# Aplicación de aplicaciones del cliente. Es lo único que se aplica a mano; todo lo demás sale de
+# aplicaciones-cliente-demo/. El repo es público: Argo CD no necesita credenciales.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aplicaciones-cliente-demo
+  namespace: argocd
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: main
+    path: cliente/cliente-demo-k8s/aplicaciones-cliente-demo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}

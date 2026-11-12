@@ -1,0 +1,57 @@
+{{- /* Ingesta mTLS de clientes externos (global.monitoring.ingesta). Valores: .Values.ingesta; clientes: ingesta.clientes. */ -}}
+{{- if include "ms.globalFlag" (dict "root" $ "path" "monitoring.ingesta") }}
+{{- if .Values.ingesta.alertas.enabled }}
+{{- if .Values.ingesta.alertas.serviceMonitorCertManager.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata: {name: cert-manager, namespace: {{ .Release.Namespace }}}
+spec:
+  namespaceSelector: {matchNames: [{{ .Values.ingesta.alertas.serviceMonitorCertManager.namespace }}]}
+  selector: {matchLabels: {{ toJson .Values.ingesta.alertas.serviceMonitorCertManager.selector }}}
+  # honorLabels: si no, el namespace del certificado pasa a exported_namespace y las alertas no casan
+  endpoints: [{port: http-metrics, interval: 60s, honorLabels: true}]
+---
+{{- end }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata: {name: ingesta-mtls, namespace: {{ .Release.Namespace }}}
+spec:
+  groups:
+  - name: ingesta-mtls
+    rules:
+    - alert: IngestaCertificadoClientePorRenovar
+      expr: (certmanager_certificate_expiration_timestamp_seconds{namespace="{{ .Release.Namespace }}", name=~"cliente-.*"} - time()) < {{ mul .Values.ingesta.alertas.diasAviso 86400 }}
+      for: 1h
+      labels: {severity: warning}
+      annotations:
+        summary: "Certificado de ingesta {{`{{ $labels.name }}`}}: caduca en {{`{{ $value | humanizeDuration }}`}}"
+        description: "cert-manager lo renovará en breve. Después: scripts/exportar-cliente.sh y entregarlo al cliente (el actual vale hasta su caducidad)."
+    - alert: IngestaCertificadoClienteCaducaPronto
+      expr: (certmanager_certificate_expiration_timestamp_seconds{namespace="{{ .Release.Namespace }}", name=~"cliente-.*"} - time()) < 7 * 86400
+      labels: {severity: critical}
+      annotations:
+        summary: "Certificado de ingesta {{`{{ $labels.name }}`}} caduca en menos de 7 días: el cliente dejará de enviar datos"
+{{- if .Values.ingesta.alertas.sinDatos.enabled }}
+{{- range (include "ms.ingesta.clientes" $ | fromJsonArray) }}
+{{- $r := printf "%s-ingesta-%s-[0-9a-f]+@kubernetescrd" $.Release.Namespace .nombre }}
+    # Sin peticiones correctas de {{ .nombre }}: si su certificado se rechaza, ni llega al router, así que también salta
+    - alert: IngestaClienteSinDatos
+      expr: |
+        sum(increase(traefik_router_requests_total{router=~"{{ $r }}", code=~"2.."}[{{ $.Values.ingesta.alertas.sinDatos.minutos }}m])) < 1
+        or absent(traefik_router_requests_total{router=~"{{ $r }}", code=~"2.."})
+      for: 5m
+      labels: {severity: warning, cliente: {{ .nombre }}}
+      annotations:
+        summary: "{{ .nombre }} lleva {{ $.Values.ingesta.alertas.sinDatos.minutos }} min sin enviar datos por la ingesta mTLS"
+        description: "Revisar con el agente diagnostico-ingesta-mtls: certificado (cert-manager del cliente), red o agentes."
+{{- end }}
+{{- end }}
+    - alert: IngestaCertificadoNoListo
+      expr: certmanager_certificate_ready_status{namespace="{{ .Release.Namespace }}", condition!="True"} == 1
+      for: 15m
+      labels: {severity: warning}
+      annotations:
+        summary: "cert-manager no tiene listo {{`{{ $labels.name }}`}} en {{ .Release.Namespace }}"
+{{- end }}
+
+{{- end }}

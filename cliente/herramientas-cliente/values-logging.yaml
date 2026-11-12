@@ -1,0 +1,106 @@
+# Logs del cliente: Fluent Bit -> Fluentd -> Loki del central por mTLS.
+# Cambios frente al basic auth: url del host del cliente, cert/key/ca por mountFrom, sin username/password ni tenant
+# (lo pone el central a partir del certificado) y Reloader reinicia Fluentd al renovar.
+global:
+  charts-version:
+    logging-operator: &logging-version 6.9.0
+
+apps:
+  logging-operator-crds:
+    enabled: true
+    source:
+      repoURL: https://github.com/kube-logging/logging-operator
+      targetRevision: *logging-version
+      path: charts/logging-operator/crds
+    destination: {namespace: logging}
+    syncPolicy:
+      syncOptions: [CreateNamespace=true, ServerSideApply=true]
+      automated: {prune: true, selfHeal: true}
+
+  logging-operator:
+    enabled: true
+    source:
+      chart: logging-operator
+      repoURL: ghcr.io/kube-logging/helm-charts
+      targetRevision: *logging-version
+      helm:
+        skipCrds: true
+        valuesObject:
+          fullnameOverride: operator
+          monitoring:
+            serviceMonitor: {enabled: true}
+          logging:
+            enabled: true
+            controlNamespace: logging
+            enableRecreateWorkloadOnImmutableFieldChange: true
+            errorOutputRef: loki
+            fluentd:
+              # Fluentd lee el certificado solo al arrancar: Reloader lo reinicia cuando cert-manager lo renueva
+              statefulsetAnnotations:
+                secret.reloader.stakater.com/reload: ingesta-mtls
+              envVars:
+                - name: CLUSTER_NAME
+                  valueFrom: {secretKeyRef: {name: monitoring-secrets, key: clusterName}}
+              scaling: {replicas: 1}
+              workers: 1
+              resources: {requests: {cpu: 100m, memory: 250Mi}, limits: {memory: 500Mi}}
+              bufferStorageVolume:
+                pvc:
+                  spec:
+                    accessModes: [ReadWriteOnce]
+                    resources: {requests: {storage: 10Gi}}
+              metrics: {serviceMonitor: true}
+            fluentbit:
+              envVars:
+                - name: CLUSTER_NAME
+                  valueFrom: {secretKeyRef: {name: monitoring-secrets, key: clusterName}}
+              inputTail: {Ignore_Older: 1h}
+              filterModify:
+                - rules:
+                    - Add: {key: cluster, value: "${CLUSTER_NAME}"}
+              metrics: {enabled: true, serviceMonitor: true}
+            clusterFlows:
+              - name: all
+                spec:
+                  globalOutputRefs: [loki]
+                  match:
+                    - select: {}
+                  filters:
+                    - dedot: {de_dot_separator: "_", de_dot_nested: true}
+            clusterOutputs:
+              - name: loki
+                spec:
+                  loki:
+                    # Antes: https://loki.monitoring.<dominio> + tenant CLUSTER_NAME + lokiUser/lokiPass
+                    # Host del cliente = CLUSTER_NAME. Comillas DENTRO del valor: Fluentd solo evalúa #{...} entre comillas.
+                    url: |-
+                      "https://#{ENV['CLUSTER_NAME']}.ingest.10.99.90.223.nip.io"
+                    # El plugin quiere RUTAS de fichero: mountFrom (valueFrom falla con ENAMETOOLONG)
+                    cert: {mountFrom: {secretKeyRef: {name: ingesta-mtls, key: tls.crt}}}
+                    key: {mountFrom: {secretKeyRef: {name: ingesta-mtls, key: tls.key}}}
+                    ca_cert: {mountFrom: {secretKeyRef: {name: ingesta-ca-servidor, key: ca.crt}}}
+                    configure_kubernetes_labels: false
+                    buffer:
+                      timekey: 10s
+                      timekey_wait: 5s
+                      timekey_use_utc: true
+                      flush_thread_count: 8
+                      chunk_full_threshold: "0.8"
+                      total_limit_size: 10GB
+                      chunk_limit_size: 4MB
+                      queue_limit_length: 78
+                    labels:
+                      cluster: $.cluster
+                      namespace: $.kubernetes.namespace_name
+                      pod: $.kubernetes.pod_name
+                      container: $.kubernetes.container_name
+                      host: $.kubernetes.host
+                      app_kubernetes_io_instance: $.kubernetes.labels.app_kubernetes_io/instance
+            eventTailer:
+              enabled: true
+              pvc: {enabled: false}
+    destination: {namespace: logging}
+    syncPolicy:
+      managedNamespaceMetadata: {labels: {monitoring: "true"}}
+      syncOptions: [CreateNamespace=true]
+      automated: {prune: true, selfHeal: true}

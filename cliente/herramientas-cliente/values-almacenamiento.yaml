@@ -1,0 +1,20 @@
+# Almacenamiento local para clústeres sin StorageClass.
+# Lo necesita el buffer en disco de Fluentd: si la ingesta del central no responde, los logs esperan aquí.
+global:
+  charts-version:
+    local-path-provisioner: &local-path-version v0.0.37
+
+apps:
+  local-path-provisioner:
+    enabled: true
+    source:
+      repoURL: https://github.com/rancher/local-path-provisioner
+      targetRevision: *local-path-version
+      path: deploy/chart/local-path-provisioner
+      helm:
+        valuesObject:
+          storageClass: {create: true, defaultClass: true, name: local-path}
+    destination: {namespace: local-path-storage}
+    syncPolicy:
+      syncOptions: [CreateNamespace=true]
+      automated: {prune: true, selfHeal: true}

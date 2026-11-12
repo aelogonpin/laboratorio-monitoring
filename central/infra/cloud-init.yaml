@@ -1,0 +1,19 @@
+#cloud-config
+package_update: true
+packages: [curl, jq, nfs-common, open-iscsi, htop]
+write_files:
+  - path: /etc/sysctl.d/99-k8s-monitoring.conf
+    content: |
+      fs.inotify.max_user_watches = 1048576
+      fs.inotify.max_user_instances = 8192
+      fs.file-max = 2097152
+      vm.max_map_count = 262144
+      net.core.somaxconn = 32768
+      net.ipv4.ip_forward = 1
+  - path: /etc/security/limits.d/99-nofile.conf
+    content: |
+      * soft nofile 1048576
+      * hard nofile 1048576
+runcmd:
+  - sysctl --system
+  - swapoff -a

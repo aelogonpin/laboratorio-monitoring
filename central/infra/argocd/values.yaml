@@ -1,0 +1,53 @@
+# Argo CD (official chart argo/argo-cd 10.10.5 = Argo CD v3.5.5, renders Helm charts with Helm 4.2.x).
+# Despliega github.com/aelogonpin/laboratorio-monitoring (público, sin credenciales). Sin SSO: admin local
+# (argocd-initial-admin-secret).
+
+global:
+  domain: argocd.10.99.90.223.nip.io
+
+configs:
+  params:
+    # TLS ends at Traefik (plain HTTP on the Gateway)
+    server.insecure: true
+    # Diff against the API server's dry-run of the apply: ignores defaulted fields (e.g. HTTPRoute
+    # backendRefs group/kind/weight) that otherwise keep SSA resources OutOfSync
+    controller.diff.server.side: "true"
+  cm:
+    # Refresco del repo de GitHub (por defecto 180s)
+    timeout.reconciliation: 60s
+
+dex:
+  enabled: false
+notifications:
+  enabled: false
+
+controller:
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 2Gi}
+repoServer:
+  # Renders monitoring-stack (8 subcharts, ~7 MiB of manifests)
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 2Gi}
+server:
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  httproute:
+    enabled: true
+    parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: traefik-gateway
+      namespace: traefik
+    hostnames:
+    - argocd.10.99.90.223.nip.io
+applicationSet:
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+    limits: {memory: 256Mi}
+redis:
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+    limits: {memory: 256Mi}

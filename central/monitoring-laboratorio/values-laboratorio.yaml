@@ -1,0 +1,90 @@
+# Values del LABORATORIO (k0s-central) para el chart monitoring-stack 2.x. Se aplica encima del values del chart en
+# las Applications monitoring y logging (argocd/). Todo lo que hay aquí es propio de este entorno o de pruebas.
+global:
+  defaultStorageClass: local-path
+  storageClass: local-path
+  objectStorage:
+    s3Endpoint: seaweedfs-all-in-one.seaweedfs.svc.cluster.local:8333
+  # Kafka del laboratorio: Application kafka (kafka/)
+  kafka:
+    bootstrap: kafka-kafka-bootstrap.monitoring.svc.cluster.local:9092
+  hosts:
+    esquema: http
+    monitoring: monitoring.10.99.90.223.nip.io
+  parameters:
+    clusterName: k0s-central
+    # alta-cliente.sh añade aquí cada cliente
+    grafanaClusters: k0s-central
+
+grafana:
+  route:
+    main:
+      parentRefs:
+      - name: traefik-gateway
+        namespace: traefik
+  persistence:
+    storageClassName: local-path
+  grafana.ini:
+    database:
+      host: grafana-db-rw.postgres.svc.cluster.local:5432
+
+mimir:
+  mimir:
+    structuredConfig:
+      common:
+        storage:
+          s3:
+            insecure: true
+            bucket_lookup_type: path
+  compactor:
+    persistentVolume:
+      storageClass: local-path
+  ingester:
+    persistentVolume:
+      storageClass: local-path
+  store_gateway:
+    persistentVolume:
+      storageClass: local-path
+  metaMonitoring:
+    serviceMonitor:
+      clusterLabel: k0s-central
+
+prometheus:
+  prometheus:
+    prometheusSpec:
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: local-path
+      remoteWrite:
+      - url: http://mimir-gateway.monitoring.svc/api/v1/push
+        headers:
+          X-Scope-OrgID: k0s-central
+
+loki:
+  loki:
+    storage:
+      s3:
+        endpoint: seaweedfs-all-in-one.seaweedfs.svc.cluster.local:8333
+        region: us-east-1
+        s3ForcePathStyle: true
+        insecure: true
+  backend:
+    persistence:
+      storageClass: local-path
+  read:
+    persistence:
+      storageClass: local-path
+  write:
+    persistence:
+      storageClass: local-path
+
+ingesta:
+  dominio: ingest.10.99.90.223.nip.io
+  # CA de servidor propia del laboratorio (los clientes la fijan como servidorCA)
+  servidorTLS:
+    crear: true
+  # Clientes de la ingesta mTLS. Solo CA en el cliente: aquí va su ca.crt (público), nunca una clave.
+  # Alta: central/herramientas-ingesta/alta-cliente.sh -f values-laboratorio.yaml <nombre> ca.crt <ip>/32
+  # (cliente-demo: k0s-cliente, 10.99.90.179/32)
+  clientes: []

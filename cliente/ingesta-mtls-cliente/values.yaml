@@ -1,0 +1,24 @@
+# Requisitos en el clúster del cliente: cert-manager (y Reloader para reiniciar Fluentd al renovar).
+# nombre: el del cliente en el central (host <nombre>.ingest.<dominio>). Va en el CN del certificado.
+nombre: cliente-a
+
+ca:
+  # La CA vive en el namespace de cert-manager (los ClusterIssuer leen sus Secrets de ahí).
+  namespaceCertManager: cert-manager
+  secretName: ingesta-ca
+  # Larga a propósito: el central guarda su parte pública; cambiarla requiere mandarla de nuevo.
+  duracion: 175200h     # 20 años
+  # COPIA DE SEGURIDAD del Secret <secretName> tras el alta: si se pierde, cert-manager crea otra CA y el
+  # central dejará de aceptar a este cliente hasta recibir el ca.crt nuevo.
+
+certificado:
+  secretName: ingesta-mtls
+  duracion: 720h        # 30 días
+  renovarAntes: 240h    # renueva 10 días antes. Si caducó (clúster parado), lo vuelve a emitir al arrancar.
+  # Namespaces donde hace falta (cada uno recibe su propio certificado, con su clave):
+  # el del logging-operator (Fluentd) y el de Prometheus/Alloy.
+  namespaces: [logging-operator, monitoring]
+
+# CA del certificado de SERVIDOR del central, solo si NO es de una CA pública (laboratorio).
+# Se crea el Secret `ingesta-ca-servidor` (clave ca.crt) en cada namespace de arriba.
+servidorCA: ""

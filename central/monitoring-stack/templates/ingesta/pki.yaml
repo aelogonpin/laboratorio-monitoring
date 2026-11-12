@@ -1,0 +1,101 @@
+{{- /* Ingesta mTLS de clientes externos (global.monitoring.ingesta). Valores: .Values.ingesta; clientes: ingesta.clientes. */ -}}
+{{- if include "ms.globalFlag" (dict "root" $ "path" "monitoring.ingesta") }}
+# Emisor autofirmado: crea la CA de cada cliente (y la de servidor de laboratorio)
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata: {name: ingesta-autofirmado, namespace: {{ .Release.Namespace }}}
+spec: {selfSigned: {}}
+{{- if .Values.ingesta.servidorTLS.crear }}
+{{- $issuer := .Values.ingesta.servidorTLS.issuerRef }}
+{{- if not $issuer.name }}
+---
+# CA de servidor de LABORATORIO (en producción se usa issuerRef o el certificado del dominio)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ingesta-ca-servidor
+  namespace: {{ .Release.Namespace }}
+  annotations: {helm.sh/resource-policy: keep}
+spec:
+  isCA: true
+  secretName: ingesta-ca-servidor
+  commonName: ingesta-ca-servidor
+  duration: {{ .Values.ingesta.certCliente.caDuracion }}
+  privateKey: {algorithm: ECDSA, size: 256}
+  issuerRef: {name: ingesta-autofirmado}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata: {name: ingesta-ca-servidor, namespace: {{ .Release.Namespace }}}
+spec: {ca: {secretName: ingesta-ca-servidor}}
+{{- $issuer = dict "name" "ingesta-ca-servidor" "kind" "Issuer" }}
+{{- end }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: {name: ingesta-servidor, namespace: {{ .Release.Namespace }}}
+spec:
+  secretName: {{ .Values.ingesta.servidorTLS.secretName }}
+  dnsNames: ["*.{{ .Values.ingesta.dominio }}"]
+  issuerRef: {name: {{ $issuer.name }}, kind: {{ $issuer.kind | default "Issuer" }}}
+{{- end }}
+{{- range (include "ms.ingesta.clientes" $ | fromJsonArray) }}
+{{- if .cas }}
+{{- $c := . }}
+{{- range $i, $pem := .cas }}
+---
+# Modo "CA en el cliente": solo la parte PÚBLICA de la CA de {{ $c.nombre }} (no es secreto).
+# Su cert-manager emite y renueva el certificado; aquí no cambia nada mientras la CA sea la misma.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ca-{{ $c.nombre }}-{{ $i }}
+  namespace: {{ $.Release.Namespace }}
+  labels: {ingesta.cliente: {{ $c.nombre }}}
+type: Opaque
+stringData:
+  ca.crt: |
+{{ $pem | trim | indent 4 }}
+{{- end }}
+{{- else }}
+---
+# CA propia de {{ .nombre }}: solo firma su certificado. keep: si se borra, el certificado del cliente deja de valer.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ca-{{ .nombre }}
+  namespace: {{ $.Release.Namespace }}
+  annotations: {helm.sh/resource-policy: keep}
+  labels: {ingesta.cliente: {{ .nombre }}}
+spec:
+  isCA: true
+  secretName: ca-{{ .nombre }}
+  commonName: ingesta-ca-{{ .nombre }}
+  duration: {{ $.Values.ingesta.certCliente.caDuracion }}
+  privateKey: {algorithm: ECDSA, size: 256}
+  issuerRef: {name: ingesta-autofirmado}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata: {name: ca-{{ .nombre }}, namespace: {{ $.Release.Namespace }}}
+spec: {ca: {secretName: ca-{{ .nombre }}}}
+---
+# Certificado de cliente de {{ .nombre }} (lo que se le entrega con scripts/exportar-cliente.sh)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cliente-{{ .nombre }}
+  namespace: {{ $.Release.Namespace }}
+  labels: {ingesta.cliente: {{ .nombre }}}
+spec:
+  secretName: cliente-{{ .nombre }}
+  commonName: {{ .nombre }}
+  usages: [client auth, digital signature]
+  duration: {{ $.Values.ingesta.certCliente.duracion }}
+  renewBefore: {{ $.Values.ingesta.certCliente.renovarAntes }}
+  privateKey: {algorithm: {{ $.Values.ingesta.certCliente.algoritmo }}, size: {{ $.Values.ingesta.certCliente.tamano }}, rotationPolicy: Always}
+  issuerRef: {name: ca-{{ .nombre }}}
+{{- end }}
+{{- end }}
+
+{{- end }}

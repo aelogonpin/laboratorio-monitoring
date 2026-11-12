@@ -1,0 +1,50 @@
+{{- $n := .Values.nombre }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata: {name: ingesta-autofirmado-{{ $n }}}
+spec: {selfSigned: {}}
+---
+# CA del cliente. keep: que Helm no la borre nunca. rotationPolicy Never: si cert-manager la renueva, mantiene la
+# misma clave (el ca.crt que tiene el central sigue valiendo hasta su propia caducidad).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ingesta-ca-{{ $n }}
+  namespace: {{ .Values.ca.namespaceCertManager }}
+  annotations: {helm.sh/resource-policy: keep}
+spec:
+  isCA: true
+  secretName: {{ .Values.ca.secretName }}
+  commonName: ingesta-ca-{{ $n }}
+  duration: {{ .Values.ca.duracion }}
+  privateKey: {algorithm: RSA, size: 4096, rotationPolicy: Never}
+  issuerRef: {name: ingesta-autofirmado-{{ $n }}, kind: ClusterIssuer}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata: {name: ingesta-ca-{{ $n }}}
+spec: {ca: {secretName: {{ .Values.ca.secretName }}}}
+{{- range .Values.certificado.namespaces }}
+---
+# Certificado de cliente en {{ . }}. RSA: el plugin Loki de Fluentd no acepta ECDSA.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: {name: {{ $.Values.certificado.secretName }}, namespace: {{ . }}}
+spec:
+  secretName: {{ $.Values.certificado.secretName }}
+  commonName: {{ $n }}
+  usages: [client auth, digital signature]
+  duration: {{ $.Values.certificado.duracion }}
+  renewBefore: {{ $.Values.certificado.renovarAntes }}
+  privateKey: {algorithm: RSA, size: 2048, rotationPolicy: Always}
+  issuerRef: {name: ingesta-ca-{{ $n }}, kind: ClusterIssuer}
+{{- if $.Values.servidorCA }}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: ingesta-ca-servidor, namespace: {{ . }}}
+stringData:
+  ca.crt: |
+{{ $.Values.servidorCA | trim | indent 4 }}
+{{- end }}
+{{- end }}

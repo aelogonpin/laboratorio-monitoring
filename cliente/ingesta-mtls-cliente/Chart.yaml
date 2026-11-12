@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ingesta-mtls-cliente
+description: Lado CLIENTE de la ingesta mTLS. Crea la CA del cliente y su certificado con cert-manager, que lo renueva solo para siempre (también si caduca). Al central solo se le pasa la parte pública de la CA.
+type: application
+version: 0.1.0
+appVersion: "1.0"

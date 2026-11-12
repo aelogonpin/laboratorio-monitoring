@@ -1,0 +1,54 @@
+# Base de las herramientas del cliente. Cada bloque se activa con enabled.
+# Versiones EXACTAS: un cambio de versión es un commit aquí y una versión nueva de este chart.
+global:
+  # -- Nombre del cliente/clúster (documental). La ingesta lo pide en apps.ingesta-mtls y apps.monitoring.
+  appName: ""
+  argocdNamespace: argocd
+  charts-version:
+    cert-manager: &cert-manager-version v1.21.2
+    reloader: &reloader-version 2.2.18
+
+apps:
+  ################
+  # Cert Manager #
+  ################
+  # Además de los certificados de las webs, crea y renueva la CA y el certificado de la ingesta mTLS.
+  cert-manager:
+    enabled: true
+    source:
+      chart: cert-manager
+      repoURL: https://charts.jetstack.io
+      targetRevision: *cert-manager-version
+      helm:
+        valuesObject:
+          crds: {enabled: true}
+          fullnameOverride: cert-manager
+          extraEnv: [{name: TZ, value: Europe/Madrid}]
+          prometheus:
+            servicemonitor: {enabled: true}
+    destination: {namespace: cert-manager}
+    syncPolicy:
+      managedNamespaceMetadata: {labels: {monitoring: "true"}}
+      syncOptions: [CreateNamespace=true, ServerSideApply=true]
+      automated: {prune: true, selfHeal: true}
+
+  ##############
+  ## Reloader ##
+  ##############
+  # Reinicia Fluentd cuando cert-manager renueva el certificado (Fluentd solo lo lee al arrancar).
+  reloader:
+    enabled: true
+    source:
+      chart: reloader
+      repoURL: https://stakater.github.io/stakater-charts
+      targetRevision: *reloader-version
+      helm:
+        valuesObject:
+          reloader:
+            reloadStrategy: annotations
+            podMonitor: {enabled: true}
+    destination: {namespace: reloader}
+    syncPolicy:
+      managedNamespaceMetadata: {labels: {monitoring: "true"}}
+      syncOptions: [CreateNamespace=true]
+      automated: {prune: true, selfHeal: true}

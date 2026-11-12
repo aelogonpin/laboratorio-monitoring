@@ -1,0 +1,859 @@
+global:
+  # Lo propio de cada entorno es obligatorio (values.schema.json) y va en su values aparte.
+  objectStorage:
+    s3Endpoint: ""
+    buckets:
+      mimirBlocks: mimir-blocks
+      mimirRuler: mimir-ruler
+      mimirAlertmanager: mimir-alertmanager
+  monitoring:
+    alertmanager: false
+    grafana: true
+    grafana-dev: false
+    mimir: true
+    tenant: true
+    ingesta: true
+    prometheus: true
+    oncall: false
+  logging:
+    operator: false
+    loki: false
+  # Kafka externo para el ingest storage de Mimir (este chart no lo instala).
+  kafka:
+    bootstrap: ""
+  hosts:
+    esquema: https
+    monitoring: ""
+  parameters:
+    clusterName: ""
+    timezone: &timezone "Europe/Madrid"
+    existingSecret: &existingSecret monitoring-secrets
+    # Tenants que consulta Grafana (org 1), separados por |.
+    grafanaClusters: ""
+  extraEnv:
+  - name: S3_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: *existingSecret
+        key: s3AccessKey
+  - name: S3_SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: *existingSecret
+        key: s3SecretKey
+
+grafana:
+  enabled: true
+  fullnameOverride: grafana
+  # Única ruta pública de la monitorización (las personas). parentRefs: el Gateway del entorno.
+  route:
+    main:
+      enabled: true
+      hostnames: ['{{ .Values.global.hosts.monitoring }}']
+      parentRefs: []
+      matches:
+      - path: {type: PathPrefix, value: /grafana}
+  deploymentStrategy:
+    type: Recreate
+  startupProbe:
+    httpGet:
+      path: /api/health
+      port: grafana
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 180
+  livenessProbe:
+    httpGet:
+      path: /api/health
+      port: grafana
+    initialDelaySeconds: 60
+    timeoutSeconds: 30
+    failureThreshold: 10
+  persistence:
+    enabled: true
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  image:
+    tag: 13.2.4-distroless
+  plugins: []
+  env:
+    GF_AUTH_MANAGED_SERVICE_ACCOUNTS_ENABLED: "true"
+
+  envValueFrom:
+    GRAFANA_DB_PASS:
+      secretKeyRef:
+        name: *existingSecret
+        key: grafana-db-pass
+    LOKI_USER:
+      secretKeyRef:
+        name: *existingSecret
+        key: lokiUser
+    LOKI_PASS:
+      secretKeyRef:
+        name: *existingSecret
+        key: lokiPass
+  admin:
+    existingSecret: *existingSecret
+    passwordKey: grafana-admin-password
+  grafana.ini:
+    plugins:
+      disable_plugins: grafana-oncall-app
+    auth.anonymous:
+      hide_version: true
+    analytics:
+      check_for_updates: false
+    security:
+      content_security_policy: true
+      content_security_policy_template: |
+        """script-src 'self' 'unsafe-eval' 'unsafe-inline' 'strict-dynamic' $NONCE;object-src 'none';font-src 'self';style-src 'self' 'unsafe-inline' blob:;img-src * data:;base-uri 'self';connect-src 'self' grafana.com ws://$ROOT_PATH wss://$ROOT_PATH;manifest-src 'self';media-src 'none';form-action 'self';"""
+    server:
+      domain: '{{ .Values.global.hosts.monitoring }}'
+      root_url: '{{ .Values.global.hosts.esquema }}://{{ .Values.global.hosts.monitoring }}/grafana'
+      serve_from_sub_path: true
+    database:
+      type: postgres
+      host: ""
+      name: grafana
+      user: grafana
+      password: $__env{GRAFANA_DB_PASS}
+      ssl_mode: require
+    dataproxy:
+      timeout: 600
+      keep_alive_seconds: 600
+      dialTimeout: 600
+      tls_handshake_timeout_seconds: 600
+    feature_toggles:
+      enable: externalServiceAccounts
+      alertingCentralAlertHistory: true
+      alertingListViewV2: true
+      provisioning: true
+      kubernetesDashboards: true
+    recording_rules:
+      default_datasource_uid: Mimir
+    unified_alerting.state_history:
+      enabled: true
+      backend: prometheus
+      prometheus_target_datasource_uid: Mimir
+  sidecar:
+    dashboards:
+      enabled: true
+      folder: /var/lib/grafana/mimir-dashboards/kubernetes
+      provider:
+        name: "Mimir Dashboards"
+        orgid: 1
+        folder: Kubernetes
+        folderUid: ""
+        type: file
+        disableDelete: false
+        allowUiUpdates: false
+        foldersFromFilesStructure: false
+    alerts:
+      enabled: true
+
+    datasources:
+      enabled: true
+    plugins:
+      enabled: false
+    notifiers:
+      enabled: false
+  defaultDashboardsTimezone: *timezone
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+      - name: Mimir
+        uid: Mimir
+        type: prometheus
+        access: proxy
+        url: "http://mimir-gateway.monitoring.svc/prometheus"
+        isDefault: true
+        editable: false
+        jsonData:
+          httpHeaderName1: "X-Scope-OrgID"
+        secureJsonData:
+          httpHeaderValue1: '{{ .Values.global.parameters.grafanaClusters }}'
+      - name: Loki
+        uid: Loki
+        type: loki
+        access: proxy
+        url: "http://loki-gateway.logging.svc.cluster.local"
+        basicAuth: true
+        basicAuthUser: $LOKI_USER
+        editable: false
+        jsonData:
+          httpHeaderName1: "X-Scope-OrgID"
+        secureJsonData:
+          httpHeaderValue1: '{{ .Values.global.parameters.grafanaClusters }}'
+          basicAuthPassword: $LOKI_PASS
+  # Contact point que usan las reglas de templates/alerts (notification_settings.receiver): reenvía al
+  # Alertmanager de kube-prometheus-stack.
+  alerting:
+    contactpoints.yaml:
+      apiVersion: 1
+      contactPoints:
+      - orgId: 1
+        name: alertmanagerExternal
+        receivers:
+        - uid: alertmanagerExternal
+          type: prometheus-alertmanager
+          settings:
+            url: http://monitoring-prometheus-alertmanager.monitoring.svc:9093
+
+  serviceMonitor:
+    enabled: true
+
+mimir:
+  fullnameOverride: mimir
+  mimir:
+    config: |
+      tenant_federation:
+        enabled: true
+      usage_stats:
+        installation_mode: helm
+
+      activity_tracker:
+        filepath: /active-query-tracker/activity.log
+
+      alertmanager:
+        data_dir: /data
+        enable_api: true
+        external_url: /alertmanager
+        {{- if .Values.alertmanager.zoneAwareReplication.enabled }}
+        sharding_ring:
+          zone_awareness_enabled: true
+        {{- end }}
+        {{- if .Values.alertmanager.fallbackConfig }}
+        fallback_config_file: /configs/alertmanager_fallback_config.yaml
+        {{- end }}
+
+      alertmanager_storage:
+        backend: s3
+        s3:
+          bucket_name: {{ .Values.global.objectStorage.buckets.mimirAlertmanager }}
+
+      blocks_storage:
+        backend: s3
+        s3:
+          bucket_name: {{ .Values.global.objectStorage.buckets.mimirBlocks }}
+        bucket_store:
+          {{- if index .Values "chunks-cache" "enabled" }}
+          chunks_cache:
+            backend: memcached
+            memcached:
+              addresses: {{ include "mimir.chunksCacheAddress" . }}
+              max_item_size: {{ mul (index .Values "chunks-cache").maxItemMemory 1024 1024 }}
+              timeout: 750ms
+              max_idle_connections: 150
+          {{- end }}
+          {{- if index .Values "index-cache" "enabled" }}
+          index_cache:
+            backend: memcached
+            memcached:
+              addresses: {{ include "mimir.indexCacheAddress" . }}
+              max_item_size: {{ mul (index .Values "index-cache").maxItemMemory 1024 1024 }}
+              timeout: 750ms
+              max_idle_connections: 150
+          {{- end }}
+          {{- if index .Values "metadata-cache" "enabled" }}
+          metadata_cache:
+            backend: memcached
+            memcached:
+              addresses: {{ include "mimir.metadataCacheAddress" . }}
+              max_item_size: {{ mul (index .Values "metadata-cache").maxItemMemory 1024 1024 }}
+              max_idle_connections: 150
+          {{- end }}
+          sync_dir: /data/tsdb-sync
+        tsdb:
+          dir: /data/tsdb
+          head_compaction_interval: 15m
+          wal_replay_concurrency: 3
+
+      compactor:
+        compaction_interval: 30m
+        deletion_delay: 2h
+        max_closing_blocks_concurrency: 2
+        max_opening_blocks_concurrency: 4
+        symbols_flushers_concurrency: 4
+        first_level_compaction_wait_period: 25m
+        data_dir: "/data"
+        sharding_ring:
+          wait_stability_min_duration: 1m
+          heartbeat_period: 1m
+          heartbeat_timeout: 4m
+
+      distributor:
+        # 6.x: timeout de remote write ampliado (la escritura termina cuando Kafka confirma). Default de 6.2.1.
+        remote_timeout: 5s
+        ring:
+          heartbeat_period: 1m
+          heartbeat_timeout: 4m
+
+      frontend:
+        parallelize_shardable_queries: true
+        {{- if index .Values "results-cache" "enabled" }}
+        results_cache:
+          backend: memcached
+          memcached:
+            timeout: 500ms
+            addresses: {{ include "mimir.resultsCacheAddress" . }}
+            max_item_size: {{ mul (index .Values "results-cache").maxItemMemory 1024 1024 }}
+        cache_results: true
+        query_sharding_target_series_per_shard: 2500
+        {{- end }}
+        {{- if .Values.query_scheduler.enabled }}
+        scheduler_address: {{ template "mimir.fullname" . }}-query-scheduler-headless.{{ .Release.Namespace }}.svc:{{ include "mimir.serverGrpcListenPort" . }}
+        {{- end }}
+
+      frontend_worker:
+        grpc_client_config:
+          max_send_msg_size: 419430400 # 400MiB
+        {{- if .Values.query_scheduler.enabled }}
+        scheduler_address: {{ template "mimir.fullname" . }}-query-scheduler-headless.{{ .Release.Namespace }}.svc:{{ include "mimir.serverGrpcListenPort" . }}
+        {{- else }}
+        frontend_address: {{ template "mimir.fullname" . }}-query-frontend-headless.{{ .Release.Namespace }}.svc:{{ include "mimir.serverGrpcListenPort" . }}
+        {{- end }}
+
+      # 6.x INGEST STORAGE (Kafka). Kafka propio (Strimzi, templates/kafka/), no el demo del chart (kafka.enabled=false).
+      # El topic lo crea el KafkaTopic "mimir-ingest" (particiones = réplicas de ingester = 3), por eso no se autocrea.
+      # Partición de cada ingester = sufijo numérico del instance-id (mimir-ingester-N -> partición N).
+      ingest_storage:
+        enabled: true
+        kafka:
+          address: {{ .Values.global.kafka.bootstrap }}
+          topic: mimir-ingest
+          auto_create_topic_enabled: false
+
+      ingester:
+        # 6.x ingest storage: todo llega por Kafka; se desactiva el Push gRPC directo (default de 6.2.1).
+        push_grpc_method_enabled: false
+        ring:
+          # un solo ingester (1 partición)
+          replication_factor: 1
+          final_sleep: 0s
+          num_tokens: 512
+          tokens_file_path: /data/tokens
+          unregister_on_shutdown: false
+          heartbeat_period: 2m
+          heartbeat_timeout: 10m
+          {{- if .Values.ingester.zoneAwareReplication.enabled }}
+          zone_awareness_enabled: true
+          {{- end }}
+
+      ingester_client:
+        grpc_client_config:
+          max_recv_msg_size: 104857600
+          max_send_msg_size: 104857600
+
+      limits:
+        # Retención de bloques en S3 (entorno de pruebas)
+        compactor_blocks_retention_period: 15d
+        # Limit queries to 500 days. You can override this on a per-tenant basis.
+        max_total_query_length: 12000h
+        # Adjust max query parallelism to 16x sharding, without sharding we can run 15d queries fully in parallel.
+        # With sharding we can further shard each day another 16 times. 15 days * 16 shards = 240 subqueries.
+        max_query_parallelism: 240
+        # Avoid caching results newer than 10m because some samples can be delayed
+        # This presents caching incomplete results
+        max_cache_freshness: 10m
+
+      memberlist:
+        abort_if_cluster_join_fails: false
+        compression_enabled: false
+        join_members:
+        - dns+{{ include "mimir.fullname" . }}-gossip-ring.{{ .Release.Namespace }}.svc.{{ .Values.global.clusterDomain }}:{{ include "mimir.memberlistBindPort" . }}
+
+      querier:
+        # With query sharding we run more but smaller queries. We must strike a balance
+        # which allows us to process more sharded queries in parallel when requested, but not overload
+        # queriers during non-sharded queries.
+        # 6.2.0 baja el default de 16 a 8 (Mimir 3.2). El 16 local era copia del default antiguo: se adopta 8.
+        max_concurrent: 8
+
+      query_scheduler:
+        # Increase from default of 100 to account for queries created by query sharding
+        max_outstanding_requests_per_tenant: 800
+
+      ## Remove rules from mimir ruler, to check from prometheus stack
+      ##
+      ruler:
+        alertmanager_url: dnssrvnoa+http://_http-metrics._tcp.{{ template "mimir.fullname" . }}-alertmanager-headless.{{ .Release.Namespace }}.svc.{{ .Values.global.clusterDomain }}/alertmanager,http://monitoring-prometheus-alertmanager.{{ .Release.Namespace }}.svc.{{ .Values.global.clusterDomain }}:9093
+        enable_api: true
+        rule_path: /rules
+        query_frontend:
+          address: dns:///{{ template "mimir.fullname" . }}-query-frontend.{{ .Release.Namespace }}.svc:9095
+        tenant_federation:
+          enabled: true
+
+      ruler_storage:
+        backend: local
+        local:
+          directory: /data
+
+      {{- if index .Values "metadata-cache" "enabled" }}
+      ruler_storage:
+        backend: local
+        local:
+          directory: /data
+        cache:
+          backend: memcached
+          memcached:
+            addresses: {{ include "mimir.metadataCacheAddress" . }}
+            max_item_size: {{ mul (index .Values "metadata-cache").maxItemMemory 1024 1024 }}
+      {{- end }}
+
+      runtime_config:
+        file: /var/{{ include "mimir.name" . }}/runtime.yaml
+
+      store_gateway:
+        sharding_ring:
+          replication_factor: 1
+          heartbeat_period: 1m
+          heartbeat_timeout: 4m
+          wait_stability_min_duration: 1m
+          {{- if .Values.store_gateway.zoneAwareReplication.enabled }}
+          kvstore:
+            prefix: multi-zone/
+          {{- end }}
+          tokens_file_path: /data/tokens
+          unregister_on_shutdown: false
+          {{- if .Values.store_gateway.zoneAwareReplication.enabled }}
+          zone_awareness_enabled: true
+          {{- end }}
+
+    structuredConfig:
+      alertmanager:
+        sharding_ring:
+          replication_factor: 1
+      limits:
+        max_global_series_per_user: 12000000
+        max_label_names_per_series: 40
+        ingestion_rate: 400000
+        ingestion_burst_size: 8000000
+      common:
+        storage:
+          backend: s3
+          s3:
+            endpoint: '{{ .Values.global.objectStorage.s3Endpoint }}'
+            access_key_id: ${S3_ACCESS_KEY}
+            secret_access_key: ${S3_SECRET_KEY}
+  alertmanager:
+    enabled: true
+    replicas: 1
+    persistentVolume:
+      enabled: false
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 256Mi}
+    fallbackConfig: |
+      global:
+        resolve_timeout: 5m
+      receivers:
+        - name: "null"
+      route:
+        group_by: [cluster, namespace, alertname]
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 4h
+        receiver: "null"
+        routes:
+          # Ruta 3: Silenciar InfoInhibitor y Watchdog
+          - receiver: "null"
+            matchers:
+              - alertname =~ "InfoInhibitor|Watchdog"
+
+      inhibit_rules:
+        - equal:
+            # for alerts with equal 'cluster, namespace, alertname' labels
+            - "cluster"
+            - "namespace"
+            - "alertname"
+          source_matchers:
+            # if one has 'severity' label equal to 'critical'
+            - "severity = critical"
+          target_matchers:
+            # and the other has 'warning' or 'info'
+            - "severity =~ warning|info"
+        # then mute the other one (with severity 'warning' or 'info')
+        - equal:
+            # for alerts with equal 'cluster, namespace, alertname' labels
+            - "cluster"
+            - "namespace"
+            - "alertname"
+          source_matchers:
+            # if one has 'severity' label equal to 'warning'
+            - "severity = warning"
+          target_matchers:
+            # and the other has 'info'
+            - "severity = info"
+        # then mute the other one (with severity 'info')
+        - equal:
+            # for alerts with equal 'cluster, namespace' labels
+            - "cluster"
+            - "namespace"
+          source_matchers:
+            # if one has 'alertname' label equal to 'InfoInhibitor'
+            - "alertname = InfoInhibitor"
+          target_matchers:
+            # and the other has 'info'
+            - "severity = info"
+            # then mute the other one (with severity 'info')
+  compactor:
+    persistentVolume:
+      size: 5Gi
+    resources:
+      limits:
+        memory: 1Gi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+  distributor:
+    env:
+    - name: GOMEMLIMIT
+      value: "900MiB"
+    - name: GOGC
+      value: "300"
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 1Gi
+  ingester:
+    persistentVolume:
+      size: 5Gi
+    replicas: 1
+    resources:
+      limits:
+        memory: 2Gi
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    zoneAwareReplication:
+      enabled: false
+  chunks-cache:
+    enabled: true
+    allocatedMemory: 256
+    resources:
+      requests: {cpu: 20m, memory: 320Mi}
+      limits: {memory: 320Mi}
+  index-cache:
+    enabled: true
+    allocatedMemory: 128
+    resources:
+      requests: {cpu: 20m, memory: 160Mi}
+      limits: {memory: 160Mi}
+  metadata-cache:
+    enabled: true
+    allocatedMemory: 64
+    resources:
+      requests: {cpu: 20m, memory: 80Mi}
+      limits: {memory: 80Mi}
+  results-cache:
+    enabled: true
+    allocatedMemory: 64
+    resources:
+      requests: {cpu: 20m, memory: 80Mi}
+      limits: {memory: 80Mi}
+  memcachedExporter:
+    resources:
+      requests: {cpu: 10m, memory: 16Mi}
+      limits: {memory: 64Mi}
+  minio:
+    enabled: false
+  overrides_exporter:
+    enabled: false
+  querier:
+    replicas: 1
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 1Gi}
+  query_frontend:
+    replicas: 1
+    resources:
+      requests: {cpu: 20m, memory: 64Mi}
+      limits: {memory: 512Mi}
+  query_scheduler:
+    replicas: 1
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 256Mi}
+  ruler:
+    replicas: 1
+    resources:
+      requests: {cpu: 20m, memory: 64Mi}
+      limits: {memory: 512Mi}
+    extraContainers: []
+    extraVolumes:
+    - name: rules
+      emptyDir: {}
+    extraVolumeMounts:
+    - name: rules
+      mountPath: /rules
+  store_gateway:
+    replicas: 1
+    resources:
+      requests: {cpu: 20m, memory: 128Mi}
+      limits: {memory: 1Gi}
+    persistentVolume:
+      size: 2Gi
+    zoneAwareReplication:
+      enabled: false
+  gateway:
+    enabled: true
+    replicas: 1
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 256Mi}
+  kafka:
+    enabled: false
+  rollout_operator:
+    enabled: false
+  metaMonitoring:
+    dashboards:
+      enabled: true
+      annotations:
+        k8s-sidecar-target-directory: /var/lib/grafana/mimir-dashboards/kubernetes
+    serviceMonitor:
+      enabled: true
+    prometheusRule:
+      enabled: true
+      mimirAlerts: true
+      mimirRules: true
+
+prometheus:
+  nameOverride: "prometheus"
+  namespaceOverride: "monitoring"
+  crds:
+    enabled: false
+  defaultRules:
+    rules:
+      etcd: false
+      kubeProxy: false
+      kubeApiserverAvailability: false
+      kubeApiserverBurnrate: false
+      kubeApiserverHistogram: false
+      kubeApiserverSlos: false
+      kubeControllerManager: false
+      kubeSchedulerAlerting: false
+      kubeSchedulerRecording: false
+  windowsMonitoring:
+    enabled: false
+  prometheus-node-exporter:
+    resources:
+      limits:
+        memory: 200Mi
+      requests:
+        cpu: 10m
+        memory: 100Mi
+  kube-state-metrics:
+    resources:
+      limits:
+        memory: 200Mi
+      requests:
+        cpu: 10m
+        memory: 100Mi
+  prometheusOperator:
+    admissionWebhooks:
+      certManager:
+        enabled: true
+    resources:
+      limits:
+        memory: 200Mi
+      requests:
+        cpu: 10m
+        memory: 100Mi
+  prometheus-windows-exporter:
+    config: |-
+      collectors:
+        enabled: '[defaults],memory,container'
+  alertmanager:
+    enabled: true
+    alertmanagerSpec:
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {memory: 256Mi}
+    config:
+      global:
+        resolve_timeout: 5m
+      receivers:
+      - name: "null"
+      route:
+        receiver: "null"
+        group_by:
+        - alertname
+        - cluster
+        - namespace
+        - service
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 1h
+        routes:
+        - receiver: "null"
+          matchers:
+          - alertname=~"Watchdog|InfoInhibitor"
+          continue: false
+  grafana:
+    enabled: false
+    forceDeployDashboards: true
+    sidecar:
+      dashboards:
+        multicluster:
+          global:
+            enabled: true
+          etcd:
+            enabled: true
+  kubeScheduler:
+    enabled: false
+  kubeControllerManager:
+    enabled: false
+  kubeProxy:
+    enabled: false
+  kubeApiServer:
+    enabled: false
+  kubeEtcd:
+    enabled: false
+  prometheus:
+    prometheusSpec:
+      secrets:
+      - monitoring-secrets
+      replicaExternalLabelNameClear: true
+      prometheusExternalLabelNameClear: true
+      additionalScrapeConfigs: []
+      resources:
+        limits:
+          memory: 2Gi
+        requests:
+          cpu: 100m
+          memory: 512Mi
+      automountServiceAccountToken: true
+      remoteWrite:
+      - url: http://mimir-gateway.monitoring.svc/api/v1/push
+        headers:
+          X-Scope-OrgID: '{{ .Values.global.parameters.clusterName }}'
+      retention: 2d
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests:
+                storage: 5Gi
+      containers:
+      - name: prometheus
+        env:
+        - name: CLUSTER_NAME
+          valueFrom:
+            secretKeyRef:
+              name: *existingSecret
+              key: clusterName
+        - name: DISTRO
+          valueFrom:
+            secretKeyRef:
+              name: *existingSecret
+              key: distro
+      enableFeatures:
+      - --web.enable-remote-write-receiver
+      - expand-external-labels
+      externalLabels:
+        cluster: ${CLUSTER_NAME}
+        distro: ${DISTRO}
+      enableRemoteWriteReceiver: true
+      remoteWriteDashboards: true
+      ruleSelectorNilUsesHelmValues: false
+      ruleNamespaceSelector: &matchLabels
+        matchLabels:
+          monitoring: "true"
+      serviceMonitorSelectorNilUsesHelmValues: false
+      serviceMonitorNamespaceSelector:
+        <<: *matchLabels
+      podMonitorSelectorNilUsesHelmValues: false
+      podMonitorNamespaceSelector:
+        <<: *matchLabels
+      probeSelectorNilUsesHelmValues: false
+      probeNamespaceSelector:
+        <<: *matchLabels
+      scrapeConfigSelectorNilUsesHelmValues: false
+      scrapeConfigNamespaceSelector:
+        <<: *matchLabels
+
+# Al activarlo (global.monitoring.grafana-dev): Secret grafana-dev-secrets (admin-user / admin-password).
+grafana-dev:
+  fullnameOverride: grafana-dev
+  image:
+    tag: 13.2.4-distroless
+  persistence:
+    enabled: true
+  admin:
+    existingSecret: grafana-dev-secrets
+    passwordKey: admin-password
+
+# cortex-tenant: solo para clientes de la ingesta con metricasPorCortexTenant (tenant <cliente>-<cluster>).
+tenant:
+  fullnameOverride: cortex-tenant
+  replicas: 1
+  podDisruptionBudget: {enabled: false}
+  config:
+    listen_pprof: ""
+    target: http://mimir-distributor.monitoring.svc:8080/api/v1/push
+    log_level: info
+    tenant:
+      label: cluster
+      prefix_prefer_source: true
+      label_remove: false
+      default: sin-cluster
+      accept_all: false
+  livenessProbe: {enabled: true}
+  readinessProbe: {enabled: true}
+
+# Ingesta mTLS (templates/ingesta). Clientes en ingesta.clientes, en el values del entorno (doc/ingesta-mtls.md).
+# Requiere Traefik con allowCrossNamespace y un motor de NetworkPolicy en el clúster.
+ingesta:
+  dominio: ""
+  entryPoints: [websecure]
+  # crear: true sin issuerRef = CA propia (solo laboratorio). Producción: issuerRef del wildcard o crear: false.
+  servidorTLS:
+    secretName: ingesta-servidor-tls
+    crear: false
+    issuerRef: {}
+  certCliente:
+    duracion: 8760h
+    renovarAntes: 720h
+    caDuracion: 87600h
+    algoritmo: RSA
+    tamano: 2048
+  limiteCuerpo: 52428800
+  backends:
+    loki:  {namespace: logging,    service: loki-write,        port: 3100,
+            pods: {app.kubernetes.io/name: loki, app.kubernetes.io/component: write}}
+    mimir: {namespace: monitoring, service: mimir-distributor, port: 8080,
+            pods: {app.kubernetes.io/name: mimir, app.kubernetes.io/component: distributor}}
+  cortexTenant: {namespace: monitoring, service: cortex-tenant, port: 8080}
+  politicaRed:
+    enabled: true
+    modo: namespace
+    traefikNamespace: traefik
+    namespaces:
+      monitoring:
+        permitidos:
+          - {namespace: logging, pods: {app.kubernetes.io/name: loki}}
+          - grafana-gitsync
+      logging:
+        permitidos:
+          - {namespace: monitoring, pods: {app.kubernetes.io/name: grafana}}
+          - {namespace: monitoring, pods: {app.kubernetes.io/name: prometheus}}
+    internosPermitidos: []
+  alertas:
+    enabled: true
+    diasAviso: 35
+    sinDatos: {enabled: true, minutos: 30}
+    serviceMonitorCertManager:
+      enabled: true
+      namespace: cert-manager
+      selector: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/component: controller}
+  clientes: []

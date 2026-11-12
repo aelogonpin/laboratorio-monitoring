@@ -1,0 +1,147 @@
+global:
+  monitoring:
+    alertmanager: false
+    grafana: false
+    grafana-dev: false
+    oncall: false
+    mimir: false
+    tenant: false
+    ingesta: false
+    prometheus: false
+  logging:
+    loki: true
+    operator: false
+  parameters:
+    timezone: &timezone "Europe/Madrid"
+    existingSecret: &existingSecret monitoring-secrets
+loki:
+  deploymentMode: SimpleScalable
+  fullnameOverride: loki
+  serviceAccount:
+    name: loki
+  monitoring:
+    serviceMonitor:
+      enabled: true
+  lokiCanary:
+    enabled: false
+  loki:
+    commonConfig:
+      replication_factor: 1
+    podSecurityContext:
+      fsGroup: 1000
+      runAsGroup: 1000
+      runAsUser: 1000
+    server:
+      grpc_server_max_recv_msg_size: 104857600
+      grpc_server_max_send_msg_size: 104857600
+      http_server_write_timeout: 60s
+      http_server_read_timeout: 60s
+    ingester:
+      chunk_target_size: 2621440
+    storage:
+      bucketNames:
+        chunks: loki-chunks
+        ruler: loki-ruler
+        admin: loki-admin
+      type: s3
+      # endpoint, region, s3ForcePathStyle e insecure: en el values del entorno.
+      s3:
+        accessKeyId: ${S3_ACCESS_KEY}
+        secretAccessKey: ${S3_SECRET_KEY}
+    limits_config:
+      ingestion_rate_mb: 14
+      ingestion_burst_size_mb: 18
+      per_stream_rate_limit_burst: 20MB
+      max_global_streams_per_user: 0
+      per_stream_rate_limit: "10MB"
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+      max_cache_freshness_per_query: 10m
+      split_queries_by_interval: 15m
+      volume_enabled: true
+      retention_period: 168h
+      max_label_names_per_series: 30
+    compactor:
+      retention_enabled: true
+      retention_delete_delay: 2h
+      compaction_interval: 10m
+      delete_request_store: s3
+    querier:
+      multi_tenant_queries_enabled: true
+    rulerConfig:
+      enable_api: true
+      enable_alertmanager_v2: true
+      rule_path: "/tmp/custom_rules"
+      storage:
+        local:
+          directory: "/tmp/custom_rules"
+        type: local
+      ring:
+        kvstore:
+          store: inmemory
+      alertmanager_url: http://mimir-alertmanager.monitoring.svc.cluster.local:8080/alertmanager
+
+    pattern_ingester:
+      enabled: true
+    schemaConfig:
+      configs:
+      - from: "2024-12-27"
+        index:
+          period: 24h
+          prefix: loki_index_
+        object_store: s3
+        schema: v13
+        store: tsdb
+  backend: &loki-config
+    replicas: 1
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 1Gi}
+    persistence:
+      size: 2Gi
+      # false: si no, borrar o escalar el StatefulSet borra sus PVC.
+      enableStatefulSetAutoDeletePVC: false
+    extraArgs:
+    - -config.expand-env=true
+    extraEnv:
+    - name: S3_ACCESS_KEY
+      valueFrom:
+        secretKeyRef:
+          name: *existingSecret
+          key: s3AccessKey
+    - name: S3_SECRET_KEY
+      valueFrom:
+        secretKeyRef:
+          name: *existingSecret
+          key: s3SecretKey
+    extraVolumeMounts:
+    - name: ruler-local
+      mountPath: /tmp/custom_rules
+    extraVolumes:
+    - name: ruler-local
+      emptyDir: {}
+  write:
+    <<: *loki-config
+    persistence:
+      size: 5Gi
+      enableStatefulSetAutoDeletePVC: false
+  read:
+    <<: *loki-config
+  test:
+    enabled: false
+  chunksCache:
+    allocatedMemory: 256
+    allocatedCPU: 50m
+  resultsCache:
+    allocatedMemory: 64
+    allocatedCPU: 50m
+  gateway:
+    replicas: 1
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 128Mi}
+    nginxConfig:
+      clientMaxBodySize: 10M
+    basicAuth:
+      enabled: true
+      existingSecret: *existingSecret

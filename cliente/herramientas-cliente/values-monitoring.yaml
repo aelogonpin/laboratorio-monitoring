@@ -1,0 +1,150 @@
+# Monitorización del cliente, con la ingesta mTLS:
+# - Prometheus escribe DIRECTO en el central por mTLS (sin usuario/contraseña).
+# - Sin cortex-tenant en el cliente: el tenant lo pone el central a partir del certificado (X-Scope-OrgID =
+#   nombre del cliente = CLUSTER_NAME, el mismo tenant que hoy). cortex-tenant no sabe presentar certificado.
+global:
+  charts-version:
+    monitoring: &monitoring-version 92.10.1
+    monitoring-crds: &monitoring-crds-version 32.0.1
+    ingesta-mtls-cliente: 0.1.0   # documental: se lee de cliente/ingesta-mtls-cliente
+
+apps:
+  ########################
+  # Ingesta mTLS (nuevo) #
+  ########################
+  # La CA del cliente y un certificado por namespace que envía. Se renuevan solos. Al central solo va el ca.crt.
+  ingesta-mtls:
+    enabled: true
+    source:
+      # Leído de este repo, sin registro de charts (versión en su Chart.yaml)
+      repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+      targetRevision: main
+      path: cliente/ingesta-mtls-cliente
+      helm:
+        valuesObject:
+          # **Requerido por cliente** (= CLUSTER_NAME): apps.ingesta-mtls.source.helm.valuesObject.nombre
+          nombre: ""
+          ca:
+            duracion: 43800h        # 5 años
+          certificado:
+            duracion: 24h
+            renovarAntes: 8h
+            namespaces: [monitoring, logging]
+          # CA raíz del certificado de SERVIDOR del central. El cliente solo confía en ella para la ingesta
+          # (en producción, la raíz pública del certificado del central; aquí, la del laboratorio).
+          # PEGAR aquí (como bloque |) el ca.crt del Secret monitoring/ingesta-ca-servidor del central nuevo:
+          #   kubectl -n monitoring get secret ingesta-ca-servidor -o jsonpath='{.data.ca\.crt}' | base64 -d
+          # Vacío = no se crea ingesta-ca-servidor y Prometheus/Fluentd no pueden enviar.
+          servidorCA: ""
+    destination: {namespace: cert-manager}
+    syncPolicy:
+      syncOptions: [CreateNamespace=true, SkipDryRunOnMissingResource=true]
+      automated: {prune: true, selfHeal: true}
+
+  # cortex-tenant NO va en el cliente. Si un mismo certificado tuviera que
+  # enviar varios clústeres, el central lo enruta por su cortex-tenant (metricasPorCortexTenant en el central).
+  monitoring-tenant:
+    enabled: false
+
+  ###############################
+  # Monitoring-crds application #
+  ###############################
+  monitoring-crds:
+    enabled: true
+    source:
+      chart: prometheus-operator-crds
+      repoURL: https://prometheus-community.github.io/helm-charts
+      targetRevision: *monitoring-crds-version
+    destination: {namespace: monitoring}
+    syncPolicy:
+      syncOptions: [CreateNamespace=true, ServerSideApply=true]
+      automated: {prune: true, selfHeal: true}
+
+  ##########################
+  # Monitoring application #
+  ##########################
+  monitoring:
+    enabled: true
+    source:
+      chart: kube-prometheus-stack
+      repoURL: https://prometheus-community.github.io/helm-charts
+      targetRevision: *monitoring-version
+      helm:
+        skipCrds: true
+        valuesObject:
+          # **Requerido por cliente** (= CLUSTER_NAME): apps.monitoring.source.helm.valuesObject.ingesta.nombre
+          ingesta:
+            nombre: ""
+            dominio: ingest.10.99.90.223.nip.io
+          nameOverride: prometheus
+          namespaceOverride: monitoring
+          grafana: {enabled: false}
+          alertmanager: {enabled: false}
+          defaultRules:
+            rules:
+              etcd: false
+              kubeApiserverAvailability: false
+              kubeApiserverBurnrate: false
+              kubeApiserverHistogram: false
+              kubeApiserverSlos: false
+              kubeControllerManager: false
+              kubeSchedulerAlerting: false
+              kubeSchedulerRecording: false
+          kubeScheduler: {enabled: false}
+          kubeControllerManager: {enabled: false}
+          kubeEtcd: {enabled: false}
+          kubeApiServer: {enabled: false}
+          kube-state-metrics:
+            metricLabelsAllowlist:
+              - deployments=[helm.sh/chart,app.kubernetes.io/version,app.kubernetes.io/name,app.kubernetes.io/instance]
+              - statefulsets=[helm.sh/chart,app.kubernetes.io/version,app.kubernetes.io/name,app.kubernetes.io/instance]
+              - daemonsets=[helm.sh/chart,app.kubernetes.io/version,app.kubernetes.io/name,app.kubernetes.io/instance]
+            resources: {requests: {cpu: 10m, memory: 100Mi}, limits: {memory: 200Mi}}
+          prometheus-node-exporter:
+            resources: {requests: {cpu: 10m, memory: 50Mi}, limits: {memory: 200Mi}}
+          prometheusOperator:
+            kubeletEndpointsEnabled: false
+            kubeletEndpointSliceEnabled: true
+            resources: {requests: {cpu: 10m, memory: 100Mi}, limits: {memory: 200Mi}}
+          prometheus:
+            prometheusSpec:
+              serviceDiscoveryRole: EndpointSlice
+              replicaExternalLabelNameClear: true
+              prometheusExternalLabelNameClear: true
+              resources: {requests: {cpu: 70m, memory: 600Mi}, limits: {memory: 1500Mi}}
+              # CLUSTER_NAME y DISTRO salen de monitoring-secrets, como hoy. Ya no lleva contraseñas.
+              containers:
+                - name: prometheus
+                  env:
+                    - name: CLUSTER_NAME
+                      valueFrom: {secretKeyRef: {name: monitoring-secrets, key: clusterName}}
+                    - name: DISTRO
+                      valueFrom: {secretKeyRef: {name: monitoring-secrets, key: distro}}
+              enableFeatures: [expand-external-labels]
+              externalLabels:
+                cluster: ${CLUSTER_NAME}
+                distro: ${DISTRO}
+              # Antes: http://cortex-tenant:8080/push y cortex-tenant con basic auth hacia /mimir/api/v1/push.
+              # kube-prometheus-stack pasa remoteWrite por tpl: la URL sale de `ingesta` (arriba).
+              remoteWrite:
+                - url: 'https://{{ required "ingesta.nombre (= CLUSTER_NAME)" .Values.ingesta.nombre }}.{{ .Values.ingesta.dominio }}/api/v1/push'
+                  tlsConfig:
+                    cert: {secret: {name: ingesta-mtls, key: tls.crt}}
+                    keySecret: {name: ingesta-mtls, key: tls.key}
+                    ca: {secret: {name: ingesta-ca-servidor, key: ca.crt}}
+              ruleSelectorNilUsesHelmValues: false
+              ruleNamespaceSelector: &matchLabels
+                matchLabels: {monitoring: "true"}
+              serviceMonitorSelectorNilUsesHelmValues: false
+              serviceMonitorNamespaceSelector: *matchLabels
+              podMonitorSelectorNilUsesHelmValues: false
+              podMonitorNamespaceSelector: *matchLabels
+              probeSelectorNilUsesHelmValues: false
+              probeNamespaceSelector: *matchLabels
+              scrapeConfigSelectorNilUsesHelmValues: false
+              scrapeConfigNamespaceSelector: *matchLabels
+    destination: {namespace: monitoring}
+    syncPolicy:
+      managedNamespaceMetadata: {labels: {monitoring: "true"}}
+      syncOptions: [CreateNamespace=true, ServerSideApply=true]
+      automated: {prune: true, selfHeal: true}

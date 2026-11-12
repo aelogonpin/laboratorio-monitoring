@@ -1,0 +1,4 @@
+Parte pública de la CA (mándala al central; no es secreta):
+  kubectl -n {{ .Values.ca.namespaceCertManager }} get secret {{ .Values.ca.secretName }} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca-{{ .Values.nombre }}.crt
+Copia de seguridad de la CA (SÍ es secreta: guárdala en vuestro gestor de secretos):
+  kubectl -n {{ .Values.ca.namespaceCertManager }} get secret {{ .Values.ca.secretName }} -o yaml

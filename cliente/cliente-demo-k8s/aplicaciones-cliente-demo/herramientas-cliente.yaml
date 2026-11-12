@@ -1,0 +1,44 @@
+# Herramientas del clúster: el chart herramientas-cliente, leído directamente de este repo (sin registro de charts).
+# Fijar una versión = poner un tag o un commit en targetRevision.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: herramientas-cliente
+  namespace: argocd
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: main
+    path: cliente/herramientas-cliente
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-monitoring.yaml
+        - values-logging.yaml
+        # Sin StorageClass propia: local-path (en otros clientes, NFS o Longhorn)
+        - values-almacenamiento.yaml
+      valuesObject:
+        global:
+          appName: cliente-demo
+        # Lo propio de este cliente: su nombre (= CLUSTER_NAME de monitoring-secrets), que es el host de la ingesta,
+        # el CN del certificado y el tenant. Fluentd lo toma de CLUSTER_NAME.
+        apps:
+          monitoring:
+            source:
+              helm:
+                valuesObject:
+                  ingesta: {nombre: cliente-demo}
+          ingesta-mtls:
+            source:
+              helm:
+                valuesObject:
+                  nombre: cliente-demo
+                  # DEMO: 1 h para ver renovaciones en directo (cada ~10 min). El chart trae 24h / 8h.
+                  certificado: {duracion: 1h, renovarAntes: 50m}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}

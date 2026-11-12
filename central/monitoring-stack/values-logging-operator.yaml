@@ -1,0 +1,178 @@
+global:
+  monitoring:
+    alertmanager: false
+    grafana: false
+    grafana-dev: false
+    oncall: false
+    mimir: false
+    tenant: false
+    ingesta: false
+    prometheus: false
+  logging:
+    loki: false
+    operator: true
+  parameters:
+    secret: &monitoring-secret monitoring-secrets
+operator:
+  fullnameOverride: operator
+  monitoring:
+    serviceMonitor:
+      enabled: true
+  logging:
+    enabled: true
+    flowConfigCheckDisabled: true
+    skipInvalidResources: true
+    allowClusterResourcesFromAllNamespaces: true
+    controlNamespace: logging-operator
+    enableRecreateWorkloadOnImmutableFieldChange: true
+
+    fluentdDisabled: false
+    fluentd:
+      logLevel: debug
+      envVars:
+      - name: CLUSTER_NAME
+        valueFrom:
+          secretKeyRef:
+            name: *monitoring-secret
+            key: clusterName
+      scaling:
+        replicas: 1
+      workers: 1
+      resources:
+        requests:
+          cpu: 100m
+          memory: 250Mi
+        limits:
+          memory: 1500Mi
+      bufferStorageVolume:
+        pvc:
+          spec:
+            accessModes:
+            - ReadWriteOnce
+            resources:
+              requests:
+                storage: 20Gi
+      metrics:
+        serviceMonitor: true
+        prometheusRules: true
+
+    fluentbitDisabled: false
+    fluentbit:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 70Mi
+        limits:
+          memory: 150Mi
+      envVars:
+      - name: CLUSTER_NAME
+        valueFrom:
+          secretKeyRef:
+            name: *monitoring-secret
+            key: clusterName
+      inputTail:
+        Ignore_Older: 1h
+        Mem_Buf_Limit: 10MB
+      filterModify:
+      - rules:
+        - Add:
+            key: cluster
+            value: ${CLUSTER_NAME}
+      metrics:
+        # Obligatorio en 6.x: sin enabled: true no se crean serviceMonitor ni prometheusRule (logging-operator#2106).
+        enabled: true
+        serviceMonitor: true
+        prometheusRules: true
+
+    nodeAgents: {}
+
+    clusterFlows:
+    - name: all
+      spec:
+        globalOutputRefs:
+        - loki
+        match:
+        - exclude:
+            labels:
+              app.kubernetes.io/component: gateway
+        - select: {}
+    - name: gateway
+      spec:
+        globalOutputRefs:
+        - loki
+        match:
+        - select:
+            labels:
+              app.kubernetes.io/component: gateway
+        filters:
+        - parser:
+            remove_key_name_field: true
+            reserve_data: true
+            reserve_time: true
+            parse:
+              type: regexp
+              expression: >-
+                /^(?<remote>[^ ]*) (?<host>[^ ]*) (?<user>[^ ]*) \[(?<time>[^\]]*)\]  (?<code>[^ ]*) "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)? (?<protocol>[^ ]*)" (?<size>[^ ]*) "(?<not>[^\"]*)" (?:"(?<referer>[^\"]*)" "(?<agent>[^\"]*)"(?:\s+(?<http_x_forwarded_for>[^ ]+))?)?$/
+              time_format: >-
+                %d/%b/%Y:%H:%M:%S %z
+    - name: nginx
+      spec:
+        globalOutputRefs:
+        - loki
+        match:
+        - select:
+            labels:
+              app.kubernetes.io/name: nginx
+        - select:
+            labels:
+              app.kubernetes.io/name: ingress-nginx
+        filters:
+        - parser:
+            remove_key_name_field: true
+            reserve_data: true
+            reserve_time: true
+            parse:
+              type: multi_format
+              patterns:
+              - format: regexp
+                expression: >-
+                  /^(?<remote>[^ ]*) - (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)"?)? (?<req_size>[^ ]*) (?<req_time>[^ ]*) \[(?<proxy>[^\]]*)\] \[(?<proxy_alt>[^\]]*)\] (?<host>[^ ]*) (?<upstream_size>[^ ]*) (?<upstream_time>[^ ]*) (?<upstream_code>[^ ]*) (?<id>[^ ]*)?$/
+                time_format: >-
+                  %d/%b/%Y:%H:%M:%S %z
+              - format: none
+    clusterOutputs:
+    - name: loki
+      spec:
+        loki:
+          url: http://logging-loki-gateway.logging.svc.cluster.local
+          tenant: |-
+            "#{ENV['CLUSTER_NAME']}"
+          username:
+            valueFrom:
+              secretKeyRef:
+                name: *monitoring-secret
+                key: lokiUser
+          password:
+            valueFrom:
+              secretKeyRef:
+                name: *monitoring-secret
+                key: lokiPass
+          configure_kubernetes_labels: true
+          buffer:
+            timekey: 10s
+            timekey_wait: 5s
+            timekey_use_utc: true
+            flush_thread_count: 8
+            chunk_full_threshold: "0.8"
+            total_limit_size: 10GB
+            chunk_limit_size: 64MB
+            queue_limit_length: 78
+          extract_kubernetes_labels: true
+          labels:
+            cluster: $.cluster
+    eventTailer:
+      enabled: true
+      pvc:
+        enabled: false
+
+    hostTailer: {}

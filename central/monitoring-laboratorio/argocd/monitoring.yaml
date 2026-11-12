@@ -1,0 +1,28 @@
+# Release monitoring del monitoring-stack con el values del laboratorio. Repo público: sin credenciales en Argo CD.
+# El values del laboratorio está en otra carpeta del mismo repo (ruta relativa al chart).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: main
+    path: central/monitoring-stack
+    helm:
+      releaseName: monitoring
+      valueFiles:
+      - values.yaml
+      - ../monitoring-laboratorio/values-laboratorio.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - ServerSideApply=true
+    - CreateNamespace=true

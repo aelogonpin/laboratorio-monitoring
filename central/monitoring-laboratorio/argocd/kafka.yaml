@@ -1,0 +1,24 @@
+# Kafka del laboratorio (Strimzi) para el ingest storage de Mimir. El monitoring-stack lo usa como externo
+# (global.kafka.bootstrap en values-laboratorio.yaml). Va antes que monitoring.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kafka
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: main
+    path: central/monitoring-laboratorio/kafka
+    helm:
+      releaseName: kafka
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - ServerSideApply=true

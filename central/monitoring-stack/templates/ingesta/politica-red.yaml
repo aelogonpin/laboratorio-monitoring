@@ -1,0 +1,75 @@
+{{- /*
+NetworkPolicy del camino de escritura. Dos modos:
+  modo: namespace (recomendado) -> una política por namespace de backend con podSelector {}: cierra TODO el namespace
+        (distribuidores, gateways, Kafka, ingesters...). Solo entra: el propio namespace, Traefik, kube-system
+        (webhooks del API server) y lo listado en namespaces.<ns>.permitidos.
+  modo: pods -> solo los pods de escritura de cada backend (deja abiertos gateways y Kafka: NO basta).
+Cada permitido: "<namespace>" o {namespace: x, pods: {label: valor}}.
+*/ -}}
+{{- define "ms.ingesta.npPeer" -}}
+{{- if kindIs "string" . }}
+- namespaceSelector:
+    matchLabels: {kubernetes.io/metadata.name: {{ . }}}
+{{- else }}
+- namespaceSelector:
+    matchLabels: {kubernetes.io/metadata.name: {{ .namespace }}}
+  {{- with .pods }}
+  podSelector:
+    matchLabels: {{ toJson . }}
+  {{- end }}
+{{- end }}
+{{- end -}}
+{{- if include "ms.globalFlag" (dict "root" $ "path" "monitoring.ingesta") }}
+{{- if .Values.ingesta.politicaRed.enabled }}
+{{- $p := .Values.ingesta.politicaRed }}
+{{- if eq ($p.modo | default "pods") "namespace" }}
+{{- range $ns, $cfg := $p.namespaces }}
+---
+# Namespace {{ $ns }} cerrado: Mimir y Loki no autentican, quien llegue a cualquier pod de aquí escribe en
+# cualquier tenant. Lo de fuera entra solo por Traefik (mTLS) o si está listado.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingesta-cerrar-{{ $ns }}
+  namespace: {{ $ns }}
+  labels: {app.kubernetes.io/part-of: ingesta-mtls}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+        {{- include "ms.ingesta.npPeer" $p.traefikNamespace | nindent 8 }}
+        {{- include "ms.ingesta.npPeer" "kube-system" | nindent 8 }}
+        {{- range ($cfg.permitidos | default list) }}
+        {{- include "ms.ingesta.npPeer" . | nindent 8 }}
+        {{- end }}
+{{- end }}
+{{- else }}
+{{- range $nombre, $b := .Values.ingesta.backends }}
+---
+# Escritura en {{ $nombre }}: solo su namespace, Traefik y los internos permitidos. OJO: gateways y Kafka quedan abiertos.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingesta-escritura-{{ $nombre }}
+  namespace: {{ $b.namespace }}
+  labels: {app.kubernetes.io/part-of: ingesta-mtls}
+spec:
+  podSelector:
+    matchLabels: {{ toJson $b.pods }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+        {{- include "ms.ingesta.npPeer" $p.traefikNamespace | nindent 8 }}
+        {{- range $p.internosPermitidos }}
+        {{- if or (kindIs "string" .) (not .backends) (has $nombre .backends) }}
+        {{- include "ms.ingesta.npPeer" . | nindent 8 }}
+        {{- end }}
+        {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- end }}

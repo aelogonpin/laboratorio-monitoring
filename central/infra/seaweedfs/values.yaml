@@ -1,0 +1,40 @@
+# SeaweedFS (official chart seaweedfs/seaweedfs) — local S3 replacement for Azure Blob.
+# Single pod (master + volume + filer + S3) with one local-path PVC. Test tenant only.
+
+master:
+  enabled: false
+  # used by the all-in-one `weed server` command: small volumes so buckets don't reserve space
+  volumeSizeLimitMB: 1024
+  defaultReplication: "000"
+volume:
+  enabled: false
+filer:
+  enabled: false
+
+allInOne:
+  enabled: true
+  updateStrategy:
+    type: Recreate
+  s3:
+    enabled: true
+    enableAuth: true
+    # Secret created by infra/monitoring/secrets.sh (key seaweedfs_s3_config)
+    existingConfigSecret: seaweedfs-s3-config
+    createBuckets:
+      - name: mimir-blocks
+      - name: mimir-alertmanager
+      - name: mimir-ruler
+      - name: tempo-traces
+      - name: loki-chunks
+      - name: loki-ruler
+      - name: loki-admin
+  data:
+    type: persistentVolumeClaim
+    size: 100Gi
+    storageClass: local-path
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 2Gi

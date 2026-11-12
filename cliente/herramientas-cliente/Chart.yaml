@@ -1,0 +1,5 @@
+apiVersion: v2
+name: herramientas-cliente
+description: Herramientas del clúster de un cliente Genera una Application de ArgoCD por cada `apps.<nombre>` con `enabled`.
+type: application
+version: 0.3.0

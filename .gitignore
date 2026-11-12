@@ -1,0 +1,12 @@
+# Repo PÚBLICO: nada de credenciales, claves ni kubeconfigs
+.secrets.env
+*.env.local
+kubeconfig*
+*.key
+*.pem
+*.crt
+*.p12
+*.tgz
+Chart.lock
+charts/
+.DS_Store

@@ -1,0 +1,36 @@
+{{- /*
+Una Application de ArgoCD por cada apps.<nombre> con enabled: true (aplicación de aplicaciones).
+`source` se copia TAL CUAL (sin tpl): las {{ }} de los values las evalúa el chart de destino
+(p. ej. kube-prometheus-stack con remoteWrite). Claves fuera de las de una Application (rules, readOnly...) se ignoran.
+*/ -}}
+{{- range $nombre, $app := .Values.apps }}
+{{- if $app.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $nombre }}
+  namespace: {{ $.Values.global.argocdNamespace }}
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: {{ $app.project | default "default" }}
+  source:
+{{ toYaml $app.source | indent 4 }}
+  destination:
+    server: {{ dig "destination" "server" "https://kubernetes.default.svc" $app }}
+    namespace: {{ required (printf "apps.%s.destination.namespace" $nombre) (dig "destination" "namespace" "" $app) }}
+  syncPolicy:
+{{- with $app.syncPolicy }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+{{- if not (dig "syncPolicy" "retry" nil $app) }}
+    # Sin orden entre Applications (ArgoCD no espera a la salud de las hijas): las que dependen de CRDs de otra
+    # reintentan hasta que existen.
+    retry: {limit: 10, backoff: {duration: 20s, factor: 2, maxDuration: 5m}}
+{{- end }}
+{{- with $app.ignoreDifferences }}
+  ignoreDifferences:
+{{ toYaml . | indent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}
