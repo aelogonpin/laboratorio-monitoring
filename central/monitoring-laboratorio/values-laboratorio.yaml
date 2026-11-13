@@ -14,20 +14,18 @@ global:
   parameters:
     clusterName: k0s-central
     # alta-cliente.sh añade aquí cada cliente
-    grafanaClusters: k0s-central
-
+    grafanaClusters: k0s-central|cliente-demo
 grafana:
   route:
     main:
       parentRefs:
-      - name: principal
-        namespace: envoy-gateway-system
+        - name: principal
+          namespace: envoy-gateway-system
   persistence:
     storageClassName: local-path
   grafana.ini:
     database:
       host: grafana-db-rw.postgres.svc.cluster.local:5432
-
 mimir:
   mimir:
     structuredConfig:
@@ -48,7 +46,6 @@ mimir:
   metaMonitoring:
     serviceMonitor:
       clusterLabel: k0s-central
-
 prometheus:
   prometheus:
     prometheusSpec:
@@ -57,10 +54,9 @@ prometheus:
           spec:
             storageClassName: local-path
       remoteWrite:
-      - url: http://mimir-gateway.monitoring.svc/api/v1/push
-        headers:
-          X-Scope-OrgID: k0s-central
-
+        - url: http://mimir-gateway.monitoring.svc/api/v1/push
+          headers:
+            X-Scope-OrgID: k0s-central
 loki:
   loki:
     storage:
@@ -78,7 +74,6 @@ loki:
   write:
     persistence:
       storageClass: local-path
-
 ingesta:
   dominio: ingest.10.99.90.223.nip.io
   # CA de servidor propia del laboratorio (los clientes la fijan como servidorCA)
@@ -87,4 +82,39 @@ ingesta:
   # Clientes de la ingesta mTLS. Solo CA en el cliente: aquí va su ca.crt (público), nunca una clave.
   # Alta: central/herramientas-ingesta/alta-cliente.sh -f values-laboratorio.yaml <nombre> ca.crt <ip>/32
   # (cliente-demo: k0s-cliente, 10.99.90.179/32)
-  clientes: []
+  clientes:
+    # Alta 2026-11-13. Huella SHA-256 de la CA: 07:36:D1:F6:35:2D:7E:1D:40:62:03:FB:15:11:CF:69:B5:50:81:4E:B5:79:B9:D3:31:E2:03:9F:D1:2E:E0:3D
+    - nombre: cliente-demo
+      cas:
+        - |
+          -----BEGIN CERTIFICATE-----
+          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
+          ARIENsCdfQ8=
+          -----END CERTIFICATE-----
+      ipPermitidas: [10.99.90.179/32]

@@ -32,10 +32,20 @@ apps:
             namespaces: [monitoring, logging]
           # CA raíz del certificado de SERVIDOR del central. El cliente solo confía en ella para la ingesta
           # (en producción, la raíz pública del certificado del central; aquí, la del laboratorio).
-          # PEGAR aquí (como bloque |) el ca.crt del Secret monitoring/ingesta-ca-servidor del central nuevo:
-          #   kubectl -n monitoring get secret ingesta-ca-servidor -o jsonpath='{.data.ca\.crt}' | base64 -d
-          # Vacío = no se crea ingesta-ca-servidor y Prometheus/Fluentd no pueden enviar.
-          servidorCA: ""
+          # CA raíz del certificado de SERVIDOR del central (k0s-central): Secret monitoring/ingesta-ca-servidor.
+          # El cliente solo confía en ella para la ingesta. Si se recrea el central, hay que volver a copiarla.
+          servidorCA: |
+            -----BEGIN CERTIFICATE-----
+            MIIBgDCCASagAwIBAgIURV/ND/TrMXshpb9YclocLQFOgQAwCgYIKoZIzj0EAwIw
+            HjEcMBoGA1UEAxMTaW5nZXN0YS1jYS1zZXJ2aWRvcjAeFw0yNjExMTMxNTE4MTBa
+            Fw0zNjExMTAxNTE4MTBaMB4xHDAaBgNVBAMTE2luZ2VzdGEtY2Etc2Vydmlkb3Iw
+            WTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQuuMHOu4/3Xl0Gj1gKz6hdDDXPlIm4
+            oW2ob37Mfh7JsNAKhxIhNqplXAmyjoRcV3cIyGwZX+s9z7g4Q0B3SwiPo0IwQDAO
+            BgNVHQ8BAf8EBAMCAqQwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUuT4L42iC
+            mSKcmY63h6FowAod894wCgYIKoZIzj0EAwIDSAAwRQIgbFQJE28A2xv43NDtCWuT
+            EXU0evrkeXAqwT0qgDRf7pUCIQDTSpyAvcbStOnBc224bvLTT/yzAwjDxuHOKVHT
+            gJV2mg==
+            -----END CERTIFICATE-----
     destination: {namespace: cert-manager}
     syncPolicy:
       syncOptions: [CreateNamespace=true, SkipDryRunOnMissingResource=true]
