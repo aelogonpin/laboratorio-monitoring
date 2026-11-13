@@ -9,8 +9,11 @@ qué**. Los dos Argo CD leen este repo público de GitHub (`github.com/aelogonpi
 | `k0s-central` | 10.99.90.223 | 8 / 24 GB / 350 GB | `~/.kube/k0s-central.yaml` | Monitorización central |
 | `k0s-cliente` | 10.99.90.179 | 3 / 8 GB / 90 GB | `~/.kube/k0s-cliente.yaml` | Un cliente (`cliente-demo`) que envía logs y métricas |
 
-Las dos tienen k0s v1.36.4+k0s.1 con su configuración por defecto: CNI kube-router (aplica NetworkPolicy), CoreDNS
-y metrics-server. **No traen StorageClass, ni Ingress, ni nada más.**
+Las dos tienen k0s v1.36.4+k0s.1 (`k0s install controller --single -c /etc/k0s/k0s.yaml`) con la configuración de
+`k0s config create` salvo **`spec.network.serviceCIDR: 10.112.0.0/16`**: el de por defecto (`10.96.0.0/12`) contiene
+la red de multipass (`10.99.90.0/24`) y k0s no aprueba entonces el certificado de servidor del kubelet (sin
+`kubectl logs` ni metrics-server). Lo demás por defecto: CNI kube-router (aplica NetworkPolicy), CoreDNS y
+metrics-server. **No traen StorageClass, ni Ingress, ni nada más.**
 
 ## Panorama
 
