@@ -33,12 +33,13 @@ spec:
         summary: "Certificado de ingesta {{`{{ $labels.name }}`}} caduca en menos de 7 días: el cliente dejará de enviar datos"
 {{- if .Values.ingesta.alertas.sinDatos.enabled }}
 {{- range (include "ms.ingesta.clientes" $ | fromJsonArray) }}
-{{- $r := printf "%s-ingesta-%s-[0-9a-f]+@kubernetescrd" $.Release.Namespace .nombre }}
-    # Sin peticiones correctas de {{ .nombre }}: si su certificado se rechaza, ni llega al router, así que también salta
+{{- $r := printf "httproute/%s/ingesta-%s/rule/.*" $.Release.Namespace .nombre }}
+    # Sin respuestas 2xx de los backends para {{ .nombre }} (métricas del Envoy). Si su certificado se rechaza, la
+    # petición ni llega a la ruta, así que también salta.
     - alert: IngestaClienteSinDatos
       expr: |
-        sum(increase(traefik_router_requests_total{router=~"{{ $r }}", code=~"2.."}[{{ $.Values.ingesta.alertas.sinDatos.minutos }}m])) < 1
-        or absent(traefik_router_requests_total{router=~"{{ $r }}", code=~"2.."})
+        sum(increase(envoy_cluster_upstream_rq_xx{envoy_cluster_name=~"{{ $r }}", envoy_response_code_class="2"}[{{ $.Values.ingesta.alertas.sinDatos.minutos }}m])) < 1
+        or absent(envoy_cluster_upstream_rq_xx{envoy_cluster_name=~"{{ $r }}", envoy_response_code_class="2"})
       for: 5m
       labels: {severity: warning, cliente: {{ .nombre }}}
       annotations:

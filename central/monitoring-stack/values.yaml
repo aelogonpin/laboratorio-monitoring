@@ -812,10 +812,12 @@ tenant:
   readinessProbe: {enabled: true}
 
 # Ingesta mTLS (templates/ingesta). Clientes en ingesta.clientes, en el values del entorno (doc/ingesta-mtls.md).
-# Requiere Traefik con allowCrossNamespace y un motor de NetworkPolicy en el clúster.
+# Requiere Envoy Gateway (GatewayClass con mergeGateways) y un motor de NetworkPolicy en el clúster.
 ingesta:
   dominio: ""
-  entryPoints: [websecure]
+  # Gateway propio de la ingesta (un listener HTTPS por cliente). Su GatewayClass debe ser de Envoy Gateway con
+  # mergeGateways en su EnvoyProxy, para compartir Envoy e IP con el Gateway de la plataforma.
+  gateway: {nombre: ingesta, className: envoy, puerto: 443}
   # crear: true sin issuerRef = CA propia (solo laboratorio). Producción: issuerRef del wildcard o crear: false.
   servidorTLS:
     secretName: ingesta-servidor-tls
@@ -827,7 +829,8 @@ ingesta:
     caDuracion: 87600h
     algoritmo: RSA
     tamano: 2048
-  limiteCuerpo: 52428800
+  # Máximo por envío (BackendTrafficPolicy requestBuffer: 413 si se pasa)
+  limiteCuerpo: 50Mi
   backends:
     loki:  {namespace: logging,    service: loki-write,        port: 3100,
             pods: {app.kubernetes.io/name: loki, app.kubernetes.io/component: write}}
@@ -837,7 +840,8 @@ ingesta:
   politicaRed:
     enabled: true
     modo: namespace
-    traefikNamespace: traefik
+    # Namespace de los pods de Envoy (los únicos de fuera que entran a los backends)
+    gatewayNamespace: envoy-gateway-system
     namespaces:
       monitoring:
         permitidos:

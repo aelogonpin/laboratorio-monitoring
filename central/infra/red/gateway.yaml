@@ -5,6 +5,8 @@ metadata:
   name: principal
   namespace: envoy-gateway-system
 spec:
+  # Todos los Gateway de la clase envoy en el mismo Envoy y la misma IP (principal + ingesta del monitoring-stack)
+  mergeGateways: true
   provider:
     type: Kubernetes
     kubernetes:
@@ -30,7 +32,8 @@ spec:
     name: principal
     namespace: envoy-gateway-system
 ---
-# Gateway del central. Hoy solo HTTP (Grafana). La ingesta mTLS (443, un listener por cliente) va aquí al migrarla.
+# Gateway de la plataforma: HTTP para Grafana y Argo CD. La ingesta mTLS crea su propio Gateway (namespace monitoring,
+# un listener 443 por cliente) que se fusiona con este por mergeGateways.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -44,3 +47,18 @@ spec:
     port: 80
     allowedRoutes:
       namespaces: {from: All}
+---
+# Métricas del Envoy (por ruta/backend): IngestaClienteSinDatos usa envoy_cluster_upstream_rq_xx
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: envoy-proxy
+  namespace: envoy-gateway-system
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: proxy
+      app.kubernetes.io/managed-by: envoy-gateway
+  podMetricsEndpoints:
+  - port: metrics
+    path: /stats/prometheus

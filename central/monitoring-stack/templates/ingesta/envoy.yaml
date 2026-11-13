@@ -1,0 +1,150 @@
+{{- /*
+Ingesta mTLS de clientes externos con Gateway API + Envoy Gateway (global.monitoring.ingesta).
+Por cliente: un listener HTTPS (<cliente>.<dominio>) en el Gateway de la ingesta, una ClientTrafficPolicy que solo
+acepta certificados de SU CA en ese listener, una HTTPRoute que solo deja las rutas de envío y fija el tenant, y,
+si tiene ipPermitidas, una SecurityPolicy. Valores: .Values.ingesta; clientes: ingesta.clientes.
+*/ -}}
+{{- if include "ms.globalFlag" (dict "root" $ "path" "monitoring.ingesta") }}
+{{- $clientes := include "ms.ingesta.clientes" $ | fromJsonArray }}
+{{- $g := .Values.ingesta.gateway }}
+{{- $ns := .Release.Namespace }}
+{{- if $clientes }}
+# Gateway de la ingesta. Con mergeGateways en el EnvoyProxy de su GatewayClass comparte el Envoy (y la IP) del
+# Gateway de la plataforma. SNI obligatorio: cada listener solo atiende su hostname.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ $g.nombre }}
+  namespace: {{ $ns }}
+spec:
+  gatewayClassName: {{ $g.className }}
+  listeners:
+  {{- range $clientes }}
+  - name: {{ .nombre }}
+    protocol: HTTPS
+    port: {{ $g.puerto }}
+    hostname: {{ include "ms.ingesta.host" (dict "c" . "root" $) | quote }}
+    tls:
+      mode: Terminate
+      certificateRefs: [{kind: Secret, name: {{ $.Values.ingesta.servidorTLS.secretName }}}]
+    allowedRoutes:
+      namespaces: {from: Same}
+      kinds: [{kind: HTTPRoute}]
+  {{- end }}
+---
+# Tamaño máximo de cada envío (413 si se pasa)
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata: {name: ingesta-limite-cuerpo, namespace: {{ $ns }}}
+spec:
+  targetRefs: [{group: gateway.networking.k8s.io, kind: Gateway, name: {{ $g.nombre }}}]
+  requestBuffer:
+    limit: {{ .Values.ingesta.limiteCuerpo | quote }}
+{{- range $clientes }}
+{{- $c := . }}
+{{- $tenant := include "ms.ingesta.tenant" . }}
+{{- if .cas }}
+---
+# Modo "CA en el cliente": solo la parte PÚBLICA de su CA (no es secreto). Varias = cambio de CA sin corte
+# (Envoy admite una sola referencia: van todas en el mismo ca.crt).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ingesta-ca-{{ .nombre }}
+  namespace: {{ $ns }}
+  labels: {ingesta.cliente: {{ .nombre }}}
+type: Opaque
+stringData:
+  ca.crt: |
+{{- range .cas }}
+{{ . | trim | indent 4 }}
+{{- end }}
+{{- end }}
+---
+# Solo certificados firmados por la CA de {{ .nombre }}, solo en su listener
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: ingesta-{{ .nombre }}
+  namespace: {{ $ns }}
+  labels: {ingesta.cliente: {{ .nombre }}}
+spec:
+  targetRefs:
+  - {group: gateway.networking.k8s.io, kind: Gateway, name: {{ $g.nombre }}, sectionName: {{ .nombre }}}
+  tls:
+    minVersion: "1.2"
+    clientValidation:
+      caCertificateRefs:
+      - kind: Secret
+        name: {{ if .cas }}ingesta-ca-{{ .nombre }}{{ else }}ca-{{ .nombre }}{{ end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ingesta-{{ .nombre }}
+  namespace: {{ $ns }}
+  labels: {ingesta.cliente: {{ .nombre }}}
+spec:
+  parentRefs: [{name: {{ $g.nombre }}, sectionName: {{ .nombre }}}]
+  hostnames: [{{ include "ms.ingesta.host" (dict "c" $c "root" $) | quote }}]
+  rules:
+  {{- /* El tenant lo pone el servidor: sobrescribe cualquier X-Scope-OrgID que mande el cliente */}}
+  {{- $tenantFiltro := printf "{type: RequestHeaderModifier, requestHeaderModifier: {set: [{name: X-Scope-OrgID, value: %s}]}}" ($tenant | quote) }}
+  {{- if include "ms.ingesta.senal" (dict "c" $c "senal" "logs" "root" $) }}
+  {{- $b := $.Values.ingesta.backends.loki }}
+  - matches: [{path: {type: Exact, value: /loki/api/v1/push}}, {path: {type: Exact, value: /otlp/v1/logs}}]
+    filters: [{{ $tenantFiltro }}]
+    backendRefs: [{name: {{ $b.service }}, namespace: {{ $b.namespace }}, port: {{ $b.port }}}]
+  {{- end }}
+  {{- if include "ms.ingesta.senal" (dict "c" $c "senal" "metricas" "root" $) }}
+  {{- $b := $.Values.ingesta.backends.mimir }}
+  {{- if .metricasPorCortexTenant }}
+  {{- $t := $.Values.ingesta.cortexTenant }}
+  # remote_write -> cortex-tenant (escucha en /push): tenant = {{ $tenant }}-<label>
+  - matches: [{path: {type: Exact, value: /api/v1/push}}]
+    filters:
+    - {{ $tenantFiltro }}
+    - {type: URLRewrite, urlRewrite: {path: {type: ReplaceFullPath, replaceFullPath: /push}}}
+    backendRefs: [{name: {{ $t.service }}, namespace: {{ $t.namespace }}, port: {{ $t.port }}}]
+  - matches: [{path: {type: Exact, value: /otlp/v1/metrics}}]
+  {{- else }}
+  - matches: [{path: {type: Exact, value: /api/v1/push}}, {path: {type: Exact, value: /otlp/v1/metrics}}]
+  {{- end }}
+    filters: [{{ $tenantFiltro }}]
+    backendRefs: [{name: {{ $b.service }}, namespace: {{ $b.namespace }}, port: {{ $b.port }}}]
+  {{- end }}
+{{- if .ipPermitidas }}
+---
+# Solo desde las IPs de {{ .nombre }} (el Service de Envoy va con externalTrafficPolicy: Local: es la IP real)
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: ingesta-{{ .nombre }}
+  namespace: {{ $ns }}
+  labels: {ingesta.cliente: {{ .nombre }}}
+spec:
+  targetRefs: [{group: gateway.networking.k8s.io, kind: HTTPRoute, name: ingesta-{{ .nombre }}}]
+  authorization:
+    defaultAction: Deny
+    rules:
+    - action: Allow
+      principal:
+        clientCIDRs: {{ toJson .ipPermitidas }}
+{{- end }}
+{{- end }}
+{{- $otros := list }}
+{{- range (list $.Values.ingesta.backends.loki $.Values.ingesta.backends.mimir $.Values.ingesta.cortexTenant) }}
+{{- if and (ne .namespace $ns) (not (has .namespace $otros)) }}{{ $otros = append $otros .namespace }}{{ end }}
+{{- end }}
+{{- range $otros }}
+---
+# Las HTTPRoute de la ingesta ({{ $ns }}) pueden enviar a los Services de este namespace
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata: {name: ingesta-desde-{{ $ns }}, namespace: {{ . }}}
+spec:
+  from: [{group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: {{ $ns }}}]
+  to: [{group: "", kind: Service}]
+{{- end }}
+{{- end }}
+{{- end }}
