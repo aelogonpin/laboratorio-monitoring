@@ -1,0 +1,46 @@
+# Plano de datos de Envoy: Service LoadBalancer con externalTrafficPolicy Local (IP real del cliente para ipPermitidas)
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: principal
+  namespace: envoy-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: LoadBalancer
+        externalTrafficPolicy: Local
+      envoyDeployment:
+        replicas: 1
+        container:
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: principal
+    namespace: envoy-gateway-system
+---
+# Gateway del central. Hoy solo HTTP (Grafana). La ingesta mTLS (443, un listener por cliente) va aquí al migrarla.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: principal
+  namespace: envoy-gateway-system
+spec:
+  gatewayClassName: envoy
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+    allowedRoutes:
+      namespaces: {from: All}

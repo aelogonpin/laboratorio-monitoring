@@ -1,14 +1,9 @@
 # cert-manager (official chart jetstack/cert-manager v1.21.2).
-# Issues the kube-prometheus-stack admission webhook certificate (prometheus.prometheusOperator.admissionWebhooks
-# .certManager in repo/values.yaml) instead of the Helm hook Jobs, which Argo CD does not run here.
+# PKI de la ingesta mTLS y certificado del webhook de admisión de kube-prometheus-stack
+# (prometheus.prometheusOperator.admissionWebhooks.certManager), en vez de los Jobs hook de Helm.
 crds:
   enabled: true
   keep: true
-# Gateway API support (HTTP-01 via gatewayHTTPRoute), as required by apply-plan/GATEWAY-API.md
-config:
-  apiVersion: controller.config.cert-manager.io/v1alpha1
-  kind: ControllerConfiguration
-  enableGatewayAPI: true
 resources:
   requests: {cpu: 10m, memory: 64Mi}
   limits: {memory: 256Mi}

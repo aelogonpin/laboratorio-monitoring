@@ -1,6 +1,10 @@
 # Values del LABORATORIO (k0s-central) para el chart monitoring-stack 2.x. Se aplica encima del values del chart en
 # las Applications monitoring y logging (argocd/). Todo lo que hay aquí es propio de este entorno o de pruebas.
 global:
+  # La ingesta mTLS todavía genera recursos de Traefik (IngressRoute, TLSOption): apagada hasta migrarla a Envoy
+  # Gateway (HTTPRoute + ClientTrafficPolicy por cliente en el Gateway principal).
+  monitoring:
+    ingesta: false
   defaultStorageClass: local-path
   storageClass: local-path
   objectStorage:
@@ -20,8 +24,8 @@ grafana:
   route:
     main:
       parentRefs:
-      - name: traefik-gateway
-        namespace: traefik
+      - name: principal
+        namespace: envoy-gateway-system
   persistence:
     storageClassName: local-path
   grafana.ini:

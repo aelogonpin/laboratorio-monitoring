@@ -1,0 +1,31 @@
+# Operador CloudNativePG (trae sus CRDs). El clúster grafana-db está en postgres/.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cnpg
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  sources:
+  - repoURL: https://cloudnative-pg.github.io/charts
+    chart: cloudnative-pg
+    targetRevision: 0.29.1
+    helm:
+      releaseName: cloudnative-pg
+      valueFiles:
+      - $repo/central/infra/cnpg/values.yaml
+  - repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: main
+    ref: repo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true
+    retry: {limit: 10, backoff: {duration: 20s, factor: 2, maxDuration: 5m}}

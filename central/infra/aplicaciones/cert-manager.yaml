@@ -1,0 +1,30 @@
+# cert-manager: PKI de la ingesta y certificado del webhook de kube-prometheus-stack.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  sources:
+  - repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.21.2
+    helm:
+      releaseName: cert-manager
+      valueFiles:
+      - $repo/central/infra/cert-manager/values.yaml
+  - repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: main
+    ref: repo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+    - ServerSideApply=true
+    retry: {limit: 10, backoff: {duration: 20s, factor: 2, maxDuration: 5m}}

@@ -1,0 +1,28 @@
+# SeaweedFS: S3 de Mimir y Loki. Necesita local-path y el Secret seaweedfs-s3-config (base).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: seaweedfs
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  sources:
+  - repoURL: https://seaweedfs.github.io/seaweedfs/helm
+    chart: seaweedfs
+    targetRevision: 4.48.0
+    helm:
+      releaseName: seaweedfs
+      valueFiles:
+      - $repo/central/infra/seaweedfs/values.yaml
+  - repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: main
+    ref: repo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: seaweedfs
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    retry: {limit: 10, backoff: {duration: 20s, factor: 2, maxDuration: 5m}}

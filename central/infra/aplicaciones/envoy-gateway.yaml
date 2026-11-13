@@ -1,0 +1,26 @@
+# Envoy Gateway 1.9.3. Trae sus CRDs y los de Gateway API v1.6.1 (canal experimental): no se instalan aparte.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: envoy-gateway
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: docker.io/envoyproxy
+    chart: gateway-helm
+    targetRevision: 1.9.3
+    helm:
+      releaseName: eg
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: envoy-gateway-system
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true
+    retry: {limit: 10, backoff: {duration: 20s, factor: 2, maxDuration: 5m}}

@@ -1,5 +1,9 @@
 # Aplicación raíz del central: lo único que se aplica a mano (kubectl apply -f central/raiz.yaml).
-# Crea las Applications de central/monitoring-laboratorio/argocd/ (kafka, monitoring, logging).
+# Crea, por olas (sync-wave), las Applications de:
+#   central/infra/aplicaciones/              base del clúster (-5 a -3): namespaces y Secrets, local-path, CRDs,
+#                                            MetalLB, Envoy Gateway, cert-manager, CNPG, SeaweedFS, Gateway, grafana-db
+#   central/monitoring-laboratorio/argocd/   kafka (0), monitoring y logging (1)
+# Cada ola espera a que la anterior esté Healthy (health de Application activada en central/infra/argocd/values.yaml).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -8,8 +12,11 @@ metadata:
   finalizers: [resources-finalizer.argocd.argoproj.io]
 spec:
   project: default
-  source:
-    repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+  sources:
+  - repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: main
+    path: central/infra/aplicaciones
+  - repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
     targetRevision: main
     path: central/monitoring-laboratorio/argocd
   destination:

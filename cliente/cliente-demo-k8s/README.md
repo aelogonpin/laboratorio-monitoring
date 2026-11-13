@@ -10,7 +10,7 @@ ingesta mTLS).
 | `aplicaciones-cliente-demo/herramientas-cliente.yaml` | Herramientas del clúster (cert-manager, Reloader, Prometheus, logging-operator e ingesta mTLS) desde el chart `herramientas-cliente`. Solo se declara `global.appName`. |
 | `aplicaciones-cliente-demo/demo-app.yaml` | La aplicación del cliente. |
 
-Fuera de Git, creado a mano al arrancar: el Secret `monitoring-secrets` (`clusterName`, `distro`).
+El Secret `monitoring-secrets` (`clusterName`, `distro`) está en `secretos/` y lo aplica la app `secretos`.
 **No lleva contraseñas de Loki ni Mimir.**
 
 ## Alta en el central

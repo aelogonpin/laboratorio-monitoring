@@ -7,7 +7,7 @@ global:
 
 configs:
   params:
-    # TLS ends at Traefik (plain HTTP on the Gateway)
+    # El TLS termina en el Gateway (HTTP plano dentro)
     server.insecure: true
     # Diff against the API server's dry-run of the apply: ignores defaulted fields (e.g. HTTPRoute
     # backendRefs group/kind/weight) that otherwise keep SSA resources OutOfSync
@@ -15,6 +15,18 @@ configs:
   cm:
     # Refresco del repo de GitHub (por defecto 180s)
     timeout.reconciliation: 60s
+    # Salud de las Applications hijas: así las olas (sync-wave) de raiz.yaml esperan a la anterior
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil and obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+      return hs
   # Repo público: se registra sin credenciales (solo para que aparezca en Argo CD)
   repositories:
     laboratorio-monitoring:
@@ -40,15 +52,15 @@ server:
   resources:
     requests: {cpu: 50m, memory: 128Mi}
     limits: {memory: 512Mi}
-  # Activar cuando exista el Gateway (Traefik o Envoy Gateway). Mientras, port-forward:
+  # Activar cuando exista el Gateway principal (Envoy Gateway). Mientras, port-forward:
   #   kubectl -n argocd port-forward svc/argocd-server 8080:80
   httproute:
     enabled: false
     parentRefs:
     - group: gateway.networking.k8s.io
       kind: Gateway
-      name: traefik-gateway
-      namespace: traefik
+      name: principal
+      namespace: envoy-gateway-system
     hostnames:
     - argocd.10.99.90.223.nip.io
 applicationSet:

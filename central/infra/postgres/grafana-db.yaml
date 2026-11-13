@@ -1,6 +1,5 @@
-# PostgreSQL for Grafana: same shape as production (external PostgreSQL >= 12, DB `grafana`, user `grafana`,
-# ssl_mode require). CloudNativePG serves TLS with its own CA, so `require` (encrypt, no CA check) works as in prod.
-# Grafana host: grafana-db-rw.postgres.svc.cluster.local:5432 (repo/values.yaml, grafana."grafana.ini".database).
+# PostgreSQL de Grafana (DB `grafana`, usuario `grafana`, ssl_mode require: CloudNativePG sirve TLS con su CA).
+# Host para Grafana: grafana-db-rw.postgres.svc.cluster.local:5432 (values-laboratorio.yaml).
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -13,7 +12,7 @@ spec:
     initdb:
       database: grafana
       owner: grafana
-      # kubernetes.io/basic-auth Secret created by infra/monitoring/secrets.sh
+      # Secret basic-auth de central/infra/base/secretos.yaml
       secret:
         name: grafana-db-credentials
   storage:
@@ -23,7 +22,7 @@ spec:
     requests: {cpu: 50m, memory: 128Mi}
     limits: {memory: 512Mi}
 ---
-# Metrics of the instance for kube-prometheus-stack (spec.monitoring.enablePodMonitor is deprecated)
+# Métricas de la instancia para kube-prometheus-stack
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:

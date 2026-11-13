@@ -10,5 +10,5 @@ ningún entorno; aquí está todo lo de este.
 | `argocd/` | Applications `kafka`, `monitoring` y `logging`. Leen este repo público de GitHub, sin credenciales |
 | `GUIA-MONTAJE.md` | Qué instalar en cada nodo y en qué orden |
 
-Las aplica `central/infra/monitoring/gitops.sh` (o `kubectl apply -f argocd/<app>.yaml`, kafka primero).
+Las crea la aplicación raíz `central/raiz.yaml` (kafka en la ola 0; monitoring y logging en la 1).
 Altas y bajas de clientes: `central/herramientas-ingesta/alta-cliente.sh -f values-laboratorio.yaml ...`.

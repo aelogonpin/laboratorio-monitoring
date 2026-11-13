@@ -1,0 +1,17 @@
+# k0s no trae balanceador. Nodo único: el pool es la propia IP del nodo, así los dominios nip.io no cambian.
+# kube-proxy (iptables) captura 80/443 de esa IP hacia Envoy; externalTrafficPolicy Local conserva la IP del cliente.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: nodo
+  namespace: metallb-system
+spec:
+  addresses: [10.99.90.223/32]
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: nodo
+  namespace: metallb-system
+spec:
+  ipAddressPools: [nodo]

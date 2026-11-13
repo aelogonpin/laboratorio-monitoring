@@ -1,0 +1,23 @@
+# Pool de MetalLB, EnvoyProxy, GatewayClass envoy y Gateway principal (donde se cuelgan las rutas).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: red
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: main
+    path: central/infra/red
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: envoy-gateway-system
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+    - ServerSideApply=true
+    retry: {limit: 10, backoff: {duration: 20s, factor: 2, maxDuration: 5m}}

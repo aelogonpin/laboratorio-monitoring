@@ -5,6 +5,8 @@ kind: Application
 metadata:
   name: monitoring
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   project: default
   source:
@@ -26,3 +28,4 @@ spec:
     syncOptions:
     - ServerSideApply=true
     - CreateNamespace=true
+    retry: {limit: 10, backoff: {duration: 20s, factor: 2, maxDuration: 5m}}

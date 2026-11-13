@@ -20,8 +20,8 @@ metrics-server. **No traen StorageClass, ni Ingress, ni nada más.**
 ```
  k0s-cliente (cliente-demo)                                  k0s-central
  ┌───────────────────────────────────┐                       ┌──────────────────────────────────────────────┐
- │ cert-manager ── CA del cliente    │                       │ Traefik  :80  Gateway API → Grafana (login)   │
- │   └─ certificado 24 h (se renueva)│   HTTPS + mTLS :443   │          :443 IngressRoute → ingesta mTLS     │
+ │ cert-manager ── CA del cliente    │                       │ Envoy GW :80  HTTPRoute → Grafana (login)     │
+ │   └─ certificado 24 h (se renueva)│   HTTPS + mTLS :443   │          :443 ingesta mTLS (pendiente migrar) │
  │ Prometheus ── remote_write ───────┼──────────────────────▶│  cliente-demo.ingest.<dominio>                │
  │ Fluentd    ── output loki ────────┼──────────────────────▶│   ├ TLSOption: solo la CA de cliente-demo     │
  │ Reloader (reinicia Fluentd)       │   solo de cliente     │   ├ solo rutas de envío; tenant lo pone él    │
@@ -44,7 +44,7 @@ Mimir y Loki no tienen ruta: se entra con `kubectl port-forward` (los comandos s
 
 | Ruta | Dónde se usa |
 |---|---|
-| `central/infra/` | Base del central, a mano con Helm (Traefik, cert-manager, SeaweedFS, Postgres, Argo CD) y scripts |
+| `central/raiz.yaml` + `central/infra/` | Aplicación raíz del central y su base como Applications de Argo CD (local-path, MetalLB, Envoy Gateway, cert-manager, CNPG, SeaweedFS, Secrets) |
 | `central/monitoring-stack/` | Chart 2.0.0. Applications `monitoring` y `logging` |
 | `central/monitoring-laboratorio/` | `values-laboratorio.yaml`, chart `kafka/` y las Applications (`argocd/`) |
 | `central/herramientas-ingesta/` | `alta-cliente.sh` / `baja-cliente.sh` (en tu equipo, editan `values-laboratorio.yaml`) |
@@ -56,47 +56,51 @@ Mimir y Loki no tienen ruta: se entra con `kubectl port-forward` (los comandos s
 
 ## 1. Central (`k0s-central`)
 
-### 1.1 Base del clúster (fuera de Argo CD)
+Todo el central lo despliega su Argo CD desde este repo. A mano solo van dos cosas:
 
-Instálalo en este orden: cada paso necesita el anterior.
+```bash
+export KUBECONFIG=~/.kube/k0s-central.yaml
+helm upgrade --install argocd argo/argo-cd --version 10.10.5 -n argocd --create-namespace -f central/infra/argocd/values.yaml
+kubectl apply -f central/raiz.yaml
+```
 
-| # | Qué | Versión | Configuración | Para qué |
+### 1.1 Lo que crea `raiz.yaml`, por olas
+
+Cada ola espera a que la anterior esté Healthy: `central/infra/argocd/values.yaml` activa la salud de las
+Applications. Si algo falla, cada app reintenta sola (`retry`).
+
+| Ola | Application | Qué | Versión | Configuración |
 |---|---|---|---|---|
-| 1 | StorageClass `local-path` (local-path-provisioner), **por defecto** | v0.0.37 | — | PVC de Mimir, Loki, Prometheus, Kafka, Postgres, SeaweedFS. Los values del laboratorio piden `local-path` |
-| 2 | Namespaces con la etiqueta `monitoring=true` | — | `monitoring`, `logging`, `seaweedfs`, `postgres`, `traefik`, `cert-manager` | Prometheus solo recoge ServiceMonitor y reglas de namespaces con esa etiqueta |
-| 3 | CRDs de Gateway API (canal experimental) y de Traefik | Gateway API v1.6.3 | `central/infra/traefik/crds/` (`install.sh` los aplica server-side) | Fuera de Helm, porque Helm no actualiza CRDs |
-| 4 | CRDs del Prometheus Operator (`prometheus-operator-crds`) | 32.0.1 | — | El chart lleva `prometheus.crds.enabled: false`. Tienen que estar **antes** que Traefik y cert-manager, porque crean ServiceMonitor |
-| 5 | Traefik (`traefik/traefik`) | 42.1.1 (v3.7.16) | `central/infra/traefik/values.yaml` | Ver 1.2 |
-| 6 | cert-manager (`jetstack/cert-manager`) | v1.21.2 | `central/infra/cert-manager/values.yaml` | PKI de la ingesta y certificado del webhook de kube-prometheus-stack |
-| 7 | SeaweedFS (S3) | 4.48.0 | `central/infra/seaweedfs/values.yaml` (antes, el Secret `seaweedfs-s3-config`) | Buckets de Mimir y Loki |
-| 8 | CloudNativePG + clúster `grafana-db` | 0.29.1 | `central/infra/postgres/operator-values.yaml` y `grafana-db.yaml` (antes, el Secret `grafana-db-credentials`) | Base de datos de Grafana: `grafana-db-rw.postgres.svc:5432` |
-| 9 | Argo CD | 10.10.5 (v3.5.5) | `central/infra/argocd/values.yaml` | Repo registrado sin credenciales (GitHub público). Ruta desactivada hasta que exista el Gateway: `kubectl port-forward` |
+| -5 | `base` | Namespaces con `monitoring=true` (monitoring, logging, seaweedfs, postgres, cert-manager, envoy-gateway-system) y los Secrets | — | `central/infra/base/` |
+| -5 | `local-path-provisioner` | StorageClass `local-path` por defecto | v0.0.37 | En la Application |
+| -5 | `prometheus-operator-crds` | CRDs del Prometheus Operator (el chart lleva `prometheus.crds.enabled: false`) | 32.0.1 | — |
+| -4 | `metallb` | Balanceador: da IP al Service de Envoy | 0.16.1 | Pool en `central/infra/red/` |
+| -4 | `envoy-gateway` | Controlador de Gateway API. **Trae sus CRDs y los de Gateway API v1.6.1 (experimental)** | 1.9.3 | Por defecto |
+| -4 | `cert-manager` | PKI de la ingesta y certificado del webhook de kube-prometheus-stack | v1.21.2 | `central/infra/cert-manager/values.yaml` |
+| -4 | `cnpg` | Operador CloudNativePG (trae sus CRDs) | 0.29.1 | `central/infra/cnpg/values.yaml` |
+| -3 | `seaweedfs` | S3 de Mimir y Loki | 4.48.0 | `central/infra/seaweedfs/values.yaml` |
+| -3 | `red` | Pool de MetalLB, `EnvoyProxy`, `GatewayClass envoy` y `Gateway principal` | — | `central/infra/red/` |
+| -3 | `grafana-db` | Clúster PostgreSQL de Grafana (`grafana-db-rw.postgres.svc:5432`) | PostgreSQL 18.6 | `central/infra/postgres/` |
+| 0 | `kafka` | Strimzi 1.3.0 + Kafka + topic `mimir-ingest` | — | `central/monitoring-laboratorio/kafka/` |
+| 1 | `monitoring` | Grafana, Mimir, kube-prometheus-stack, cortex-tenant (y la ingesta mTLS cuando se migre) | chart 2.0.0 | `values.yaml` + `values-laboratorio.yaml` |
+| 1 | `logging` | Loki | chart 2.0.0 | `values-logging.yaml` + `values-laboratorio.yaml` |
 
-Scripts (usan `~/.kube/k0s-central.yaml` salvo que exportes otro `KUBECONFIG`, y el `helm` del PATH):
-- `central/infra/traefik/install.sh`: pasos 3 y 5;
-- `central/infra/monitoring/secrets.sh`: los Secrets de 1.3;
-- `central/infra/monitoring/prereqs.sh`: pasos 2, 4, 6, 7 y 8;
-- `central/infra/monitoring/gitops.sh`: paso 9 y las Applications de 1.4, en orden.
+### 1.2 Entrada: MetalLB + Envoy Gateway
 
-### 1.2 Traefik: lo que tiene que tener sí o sí
+- k0s no trae balanceador. **MetalLB** tiene como pool **la propia IP del nodo** (`10.99.90.223/32`). Así los
+  dominios `*.10.99.90.223.nip.io` no cambian, y kube-proxy (iptables) lleva el 80/443 de esa IP a Envoy.
+- `EnvoyProxy principal`: Service `LoadBalancer` con **`externalTrafficPolicy: Local`**. Conserva la IP real del
+  cliente, que es la que comprueba `ipPermitidas`.
+- `Gateway principal` (namespace `envoy-gateway-system`), listener `http` en el 80 para todas las rutas. Grafana se
+  cuelga con `grafana.route.main.parentRefs` y Argo CD con `server.httproute` (desactivado hasta que exista el Gateway).
+- **Pendiente: la ingesta mTLS.** Sus plantillas aún generan recursos de Traefik, así que está **apagada**
+  (`global.monitoring.ingesta: false`). Al migrarla irá en este Gateway: listener HTTPS 443 por cliente,
+  `ClientTrafficPolicy` con su CA, `HTTPRoute` con `X-Scope-OrgID` y `SecurityPolicy` con sus IPs.
 
-- **Tres proveedores**:
-  - `kubernetesCRD`, para la ingesta (IngressRoute, TLSOption y Middleware);
-  - `kubernetesGateway`, para la ruta de Grafana;
-  - `kubernetesIngress`, que es opcional.
-- **`GatewayClass` `traefik` y `Gateway` `traefik-gateway`** en el namespace `traefik`, con un listener `web` HTTP y
-  `namespacePolicy: All`. Lo crea el propio chart de Traefik (`gateway:` en sus values). **El chart de monitorización
-  no crea el Gateway: solo se cuelga de él.**
-- **Entrypoint `websecure` en el 443**. Por ahí entra la ingesta, y es su `ingesta.entryPoints`.
-- **IP de origen real.** En el laboratorio se consigue con `hostPort` 80/443 y Service ClusterIP; detrás de un
-  LoadBalancer, con `externalTrafficPolicy: Local`. Sin eso, `ipPermitidas` de los clientes no sirve.
-- **Métricas con `addRoutersLabels: true` y su ServiceMonitor.** La alerta `IngestaClienteSinDatos` se calcula con
-  `traefik_router_requests_total`.
+### 1.3 Secrets
 
-### 1.3 Secrets (fuera de Git)
-
-`central/infra/monitoring/secrets.sh` los crea. La primera vez genera credenciales nuevas en
-`central/infra/monitoring/.secrets.env` (chmod 600, en `.gitignore`).
+En `central/infra/base/secretos.yaml`, **en claro**: son valores aleatorios que solo valen en este laboratorio.
+**Credenciales de verdad (tokens de GitHub, nube, producción) nunca van al repo.**
 
 | Namespace / Secret | Claves | Lo usa |
 |---|---|---|
@@ -105,27 +109,13 @@ Scripts (usan `~/.kube/k0s-central.yaml` salvo que exportes otro `KUBECONFIG`, y
 | `postgres/grafana-db-credentials` | `username`, `password` (tipo basic-auth) | CNPG, al crear la base de datos |
 | `seaweedfs/seaweedfs-s3-config` | `seaweedfs_s3_config` | SeaweedFS |
 
-### 1.4 Applications de Argo CD (en este orden)
-
-| # | Application | Origen (este repo) | Qué despliega |
-|---|---|---|---|
-| 1 | `kafka` | `central/monitoring-laboratorio/kafka` | Operador Strimzi 1.3.0 + Kafka `kafka` + topic `mimir-ingest`. Mimir no arranca sin él |
-| 2 | `monitoring` | `central/monitoring-stack` (`values.yaml` + `../monitoring-laboratorio/values-laboratorio.yaml`) | Grafana, Mimir, kube-prometheus-stack, cortex-tenant y la ingesta mTLS |
-| 3 | `logging` | `central/monitoring-stack` (`values-logging.yaml` + el mismo values del laboratorio) | Loki |
-
-Están en `central/monitoring-laboratorio/argocd/` y las crea la aplicación raíz `central/raiz.yaml`
-(`kubectl apply -f central/raiz.yaml`, una vez). Mimir reintenta hasta que el Kafka está Ready. Alternativa:
-`gitops.sh` aplica `kafka`, espera a que esté Ready y aplica las otras dos.
-
-### 1.5 Comprobaciones del central
+### 1.4 Comprobaciones del central
 
 ```bash
 export KUBECONFIG=~/.kube/k0s-central.yaml
-kubectl get gateway -n traefik                       # traefik-gateway PROGRAMMED=True
-kubectl -n argocd get app                            # kafka, monitoring, logging: Synced/Healthy
+kubectl -n argocd get app                                          # todas Synced/Healthy
+kubectl -n envoy-gateway-system get gateway principal              # PROGRAMMED=True, ADDRESS 10.99.90.223
 curl -s -o /dev/null -w '%{http_code}\n' http://monitoring.10.99.90.223.nip.io/grafana/api/health   # 200
-kubectl -n monitoring get certificate ingesta-servidor   # READY=True
-kubectl -n monitoring get networkpolicy               # ingesta-cerrar-monitoring
 ```
 
 ---
@@ -140,13 +130,11 @@ GitHub para la configuración y el central para los datos.
 | # | Qué | Versión | Nota |
 |---|---|---|---|
 | 1 | Argo CD | 10.10.5 | `cliente/infra/argocd/values.yaml`. Repo registrado sin credenciales (GitHub público). Sin ruta: `kubectl port-forward` |
-| 2 | Secret `monitoring/monitoring-secrets` | — | Solo `clusterName=cliente-demo` y `distro=k0s`. **Sin contraseñas de Loki ni Mimir** |
-| 3 | `cliente/cliente-demo-k8s/raiz.yaml` | — | La aplicación de aplicaciones. Se aplica una vez, a mano |
+| 2 | `cliente/cliente-demo-k8s/raiz.yaml` | — | La aplicación de aplicaciones. Se aplica una vez, a mano. Incluye la app `secretos` (`monitoring-secrets` con `clusterName=cliente-demo` y `distro=k0s`, sin contraseñas) |
 
 ```bash
 export KUBECONFIG=~/.kube/k0s-cliente.yaml
-kubectl create ns monitoring
-kubectl -n monitoring create secret generic monitoring-secrets --from-literal=clusterName=cliente-demo --from-literal=distro=k0s
+helm upgrade --install argocd argo/argo-cd --version 10.10.5 -n argocd --create-namespace -f cliente/infra/argocd/values.yaml
 kubectl apply -f cliente/cliente-demo-k8s/raiz.yaml
 ```
 
