@@ -1,0 +1,19 @@
+# Aplicación raíz del central: lo único que se aplica a mano (kubectl apply -f central/raiz.yaml).
+# Crea las Applications de central/monitoring-laboratorio/argocd/ (kafka, monitoring, logging).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: raiz-central
+  namespace: argocd
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: main
+    path: central/monitoring-laboratorio/argocd
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}

@@ -12,6 +12,8 @@ Dos clústeres k0s de un nodo; sus dos Argo CD leen este repo (público, sin cre
 | `central/monitoring-laboratorio/` | Values del laboratorio, chart de Kafka, Applications de Argo CD y **[GUIA-MONTAJE.md](central/monitoring-laboratorio/GUIA-MONTAJE.md)** | `k0s-central` |
 | `central/herramientas-ingesta/` | `alta-cliente.sh` / `baja-cliente.sh`: alta o baja de la CA de un cliente en el values | Tu equipo |
 | `central/infra/` | Base del central: Traefik, cert-manager, SeaweedFS, Postgres, Argo CD y los scripts | `k0s-central`, fuera de Argo CD |
+| `central/raiz.yaml` | Aplicación raíz del central (crea kafka, monitoring y logging) | `k0s-central`, `kubectl apply` una vez |
+| `cliente/infra/argocd/` | Values del Argo CD del cliente | `k0s-cliente` |
 | `cliente/cliente-demo-k8s/` | `raiz.yaml` y las Applications del cliente | `k0s-cliente` |
 | `cliente/herramientas-cliente/` | Chart que crea las Applications del cliente (cert-manager, Reloader, ingesta, Prometheus, logging-operator) | `k0s-cliente` |
 | `cliente/ingesta-mtls-cliente/` | Chart de la CA y el certificado del cliente | `k0s-cliente` |

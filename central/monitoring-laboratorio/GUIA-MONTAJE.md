@@ -67,7 +67,7 @@ Instálalo en este orden: cada paso necesita el anterior.
 | 6 | cert-manager (`jetstack/cert-manager`) | v1.21.2 | `central/infra/cert-manager/values.yaml` | PKI de la ingesta y certificado del webhook de kube-prometheus-stack |
 | 7 | SeaweedFS (S3) | 4.48.0 | `central/infra/seaweedfs/values.yaml` (antes, el Secret `seaweedfs-s3-config`) | Buckets de Mimir y Loki |
 | 8 | CloudNativePG + clúster `grafana-db` | 0.29.1 | `central/infra/postgres/operator-values.yaml` y `grafana-db.yaml` (antes, el Secret `grafana-db-credentials`) | Base de datos de Grafana: `grafana-db-rw.postgres.svc:5432` |
-| 9 | Argo CD | 10.10.5 (v3.5.5) | `central/infra/argocd/values.yaml` | Ruta `argocd.10.99.90.223.nip.io`. Sin Secret de repo: GitHub público |
+| 9 | Argo CD | 10.10.5 (v3.5.5) | `central/infra/argocd/values.yaml` | Repo registrado sin credenciales (GitHub público). Ruta desactivada hasta que exista el Gateway: `kubectl port-forward` |
 
 Scripts (usan `~/.kube/k0s-central.yaml` salvo que exportes otro `KUBECONFIG`, y el `helm` del PATH):
 - `central/infra/traefik/install.sh`: pasos 3 y 5;
@@ -110,8 +110,9 @@ Scripts (usan `~/.kube/k0s-central.yaml` salvo que exportes otro `KUBECONFIG`, y
 | 2 | `monitoring` | `central/monitoring-stack` (`values.yaml` + `../monitoring-laboratorio/values-laboratorio.yaml`) | Grafana, Mimir, kube-prometheus-stack, cortex-tenant y la ingesta mTLS |
 | 3 | `logging` | `central/monitoring-stack` (`values-logging.yaml` + el mismo values del laboratorio) | Loki |
 
-Están en `central/monitoring-laboratorio/argocd/`. `gitops.sh` aplica `kafka`, espera a que el Kafka esté Ready y
-aplica las otras dos. A mano: `kubectl apply -f` de cada una, en ese orden.
+Están en `central/monitoring-laboratorio/argocd/` y las crea la aplicación raíz `central/raiz.yaml`
+(`kubectl apply -f central/raiz.yaml`, una vez). Mimir reintenta hasta que el Kafka está Ready. Alternativa:
+`gitops.sh` aplica `kafka`, espera a que esté Ready y aplica las otras dos.
 
 ### 1.5 Comprobaciones del central
 
@@ -135,7 +136,7 @@ GitHub para la configuración y el central para los datos.
 
 | # | Qué | Versión | Nota |
 |---|---|---|---|
-| 1 | Argo CD | 10.10.5 | Sin Secret de repo (GitHub público). Puede ir sin ruta: `kubectl port-forward` |
+| 1 | Argo CD | 10.10.5 | `cliente/infra/argocd/values.yaml`. Repo registrado sin credenciales (GitHub público). Sin ruta: `kubectl port-forward` |
 | 2 | Secret `monitoring/monitoring-secrets` | — | Solo `clusterName=cliente-demo` y `distro=k0s`. **Sin contraseñas de Loki ni Mimir** |
 | 3 | `cliente/cliente-demo-k8s/raiz.yaml` | — | La aplicación de aplicaciones. Se aplica una vez, a mano |
 

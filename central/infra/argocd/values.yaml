@@ -15,6 +15,12 @@ configs:
   cm:
     # Refresco del repo de GitHub (por defecto 180s)
     timeout.reconciliation: 60s
+  # Repo público: se registra sin credenciales (solo para que aparezca en Argo CD)
+  repositories:
+    laboratorio-monitoring:
+      name: laboratorio-monitoring
+      type: git
+      url: https://github.com/aelogonpin/laboratorio-monitoring.git
 
 dex:
   enabled: false
@@ -34,8 +40,10 @@ server:
   resources:
     requests: {cpu: 50m, memory: 128Mi}
     limits: {memory: 512Mi}
+  # Activar cuando exista el Gateway (Traefik o Envoy Gateway). Mientras, port-forward:
+  #   kubectl -n argocd port-forward svc/argocd-server 8080:80
   httproute:
-    enabled: true
+    enabled: false
     parentRefs:
     - group: gateway.networking.k8s.io
       kind: Gateway
