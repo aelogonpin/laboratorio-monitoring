@@ -21,7 +21,7 @@ metrics-server. **No traen StorageClass, ni Ingress, ni nada más.**
  k0s-cliente (cliente-demo)                                  k0s-central
  ┌───────────────────────────────────┐                       ┌──────────────────────────────────────────────┐
  │ cert-manager ── CA del cliente    │                       │ Envoy GW :80  HTTPRoute → Grafana (login)     │
- │   └─ certificado 24 h (se renueva)│   HTTPS + mTLS :443   │          :443 ingesta mTLS (pendiente migrar) │
+ │   └─ certificado 24 h (se renueva)│   HTTPS + mTLS :443   │          :443 Gateway ingesta → ingesta mTLS  │
  │ Prometheus ── remote_write ───────┼──────────────────────▶│  cliente-demo.ingest.<dominio>                │
  │ Fluentd    ── output loki ────────┼──────────────────────▶│   ├ TLSOption: solo la CA de cliente-demo     │
  │ Reloader (reinicia Fluentd)       │   solo de cliente     │   ├ solo rutas de envío; tenant lo pone él    │
@@ -82,7 +82,7 @@ Applications. Si algo falla, cada app reintenta sola (`retry`).
 | -3 | `red` | Pool de MetalLB, `EnvoyProxy`, `GatewayClass envoy` y `Gateway principal` | — | `central/infra/red/` |
 | -3 | `grafana-db` | Clúster PostgreSQL de Grafana (`grafana-db-rw.postgres.svc:5432`) | PostgreSQL 18.6 | `central/infra/postgres/` |
 | 0 | `kafka` | Strimzi 1.3.0 + Kafka + topic `mimir-ingest` | — | `central/monitoring-laboratorio/kafka/` |
-| 1 | `monitoring` | Grafana, Mimir, kube-prometheus-stack, cortex-tenant (y la ingesta mTLS cuando se migre) | chart 2.0.0 | `values.yaml` + `values-laboratorio.yaml` |
+| 1 | `monitoring` | Grafana, Mimir, kube-prometheus-stack, cortex-tenant y la ingesta mTLS | chart 2.0.0 | `values.yaml` + `values-laboratorio.yaml` |
 | 1 | `logging` | Loki | chart 2.0.0 | `values-logging.yaml` + `values-laboratorio.yaml` |
 
 ### 1.2 Entrada: MetalLB + Envoy Gateway
@@ -93,9 +93,11 @@ Applications. Si algo falla, cada app reintenta sola (`retry`).
   cliente, que es la que comprueba `ipPermitidas`.
 - `Gateway principal` (namespace `envoy-gateway-system`), listener `http` en el 80 para todas las rutas. Grafana se
   cuelga con `grafana.route.main.parentRefs` y Argo CD con `server.httproute` (desactivado hasta que exista el Gateway).
-- **Pendiente: la ingesta mTLS.** Sus plantillas aún generan recursos de Traefik, así que está **apagada**
-  (`global.monitoring.ingesta: false`). Al migrarla irá en este Gateway: listener HTTPS 443 por cliente,
-  `ClientTrafficPolicy` con su CA, `HTTPRoute` con `X-Scope-OrgID` y `SecurityPolicy` con sus IPs.
+- **Ingesta mTLS**: el chart crea su propio `Gateway ingesta` (namespace `monitoring`) con un listener HTTPS 443 por
+  cliente. `mergeGateways: true` en el `EnvoyProxy` lo fusiona con `principal`: mismo Envoy, misma IP. Por cliente:
+  `ClientTrafficPolicy` con su CA, `HTTPRoute` con `X-Scope-OrgID` fijo y `SecurityPolicy` con sus IPs
+  (detalle en `central/monitoring-stack/doc/ingesta-mtls.md`).
+- Métricas del Envoy: `PodMonitor envoy-proxy` (en `red/`). La alerta `IngestaClienteSinDatos` las usa.
 
 ### 1.3 Secrets
 
@@ -190,7 +192,7 @@ Hay un ida y vuelta de partes **públicas**. No viaja ninguna clave privada.
 5. **Comprobar que llega**, desde el central, por port-forward a Prometheus:
    ```bash
    kubectl --kubeconfig ~/.kube/k0s-central.yaml -n monitoring port-forward svc/monitoring-prometheus-prometheus 9090
-   # http://localhost:9090  →  sum by (router, code) (increase(traefik_router_requests_total{router=~"monitoring-ingesta-.*"}[5m]))
+   # http://localhost:9090  →  sum by (envoy_cluster_name, envoy_response_code_class) (increase(envoy_cluster_upstream_rq_xx{envoy_cluster_name=~"httproute/monitoring/ingesta-.*"}[5m]))
    ```
    Respuestas 200/204 para `cliente-demo`, y en Grafana su tenant con datos.
 

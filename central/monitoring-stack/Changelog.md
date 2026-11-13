@@ -4,6 +4,12 @@ This file documents all notable changes to the monitoring-stack Helm Chart. The 
 
 ## 2.0.0 Breaking Change
 
+- [Ingesta] **De Traefik a Envoy Gateway + Gateway API**: fuera `templates/ingesta/traefik.yaml` (IngressRoute,
+  TLSOption, Middlewares) y `ingesta.entryPoints`. Nuevo `templates/ingesta/envoy.yaml`: `Gateway ingesta` con un
+  listener por cliente, `ClientTrafficPolicy` con su CA, `HTTPRoute` con `X-Scope-OrgID` fijo, `SecurityPolicy` por IP,
+  `BackendTrafficPolicy` de tamaño (`limiteCuerpo: 50Mi`) y `ReferenceGrant` hacia `logging`. La CA pública de cada
+  cliente pasa a un único Secret `ingesta-ca-<cliente>`. `ingesta.politicaRed.traefikNamespace` →
+  `gatewayNamespace`. La alerta `IngestaClienteSinDatos` usa `envoy_cluster_upstream_rq_xx`.
 - [Chart] Sin nada de un entorno concreto: dominios (`global.hosts`), S3 (`global.objectStorage.s3Endpoint`), Kafka
   (`global.kafka.bootstrap`), gateway, base de datos de Grafana, tenants y clientes van
   en el values de cada entorno. `values.schema.json` comprueba lo obligatorio según lo que se active. `NOTES.txt`.
