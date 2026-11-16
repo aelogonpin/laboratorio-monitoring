@@ -116,6 +116,11 @@ apps:
             kubeletEndpointsEnabled: false
             kubeletEndpointSliceEnabled: true
             resources: {requests: {cpu: 10m, memory: 100Mi}, limits: {memory: 200Mi}}
+            # Certificado del webhook de admisión con el cert-manager del cliente: el cainjector rellena el
+            # caBundle en cuanto existe el webhook. Sin esto lo hacen dos Jobs hook y el de patch es PostSync:
+            # si el primer sync falla, el webhook se queda sin caBundle y las reglas entran sin validar.
+            admissionWebhooks:
+              certManager: {enabled: true}
           prometheus:
             prometheusSpec:
               serviceDiscoveryRole: EndpointSlice
