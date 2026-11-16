@@ -15,8 +15,7 @@ Dos clústeres k0s de un nodo; sus dos Argo CD leen este repo (público, sin cre
 | `central/raiz.yaml` | Aplicación raíz del central: base, kafka, monitoring y logging, por olas | `k0s-central`, `kubectl apply` una vez |
 | `cliente/infra/argocd/` | Values del Argo CD del cliente | `k0s-cliente` |
 | `cliente/cliente-demo-k8s/` | `raiz.yaml` y las Applications del cliente | `k0s-cliente` |
-| `cliente/herramientas-cliente/` | Chart que crea las Applications del cliente (cert-manager, Reloader, ingesta, Prometheus, logging-operator) | `k0s-cliente` |
-| `cliente/ingesta-mtls-cliente/` | Chart de la CA y el certificado del cliente | `k0s-cliente` |
+| `cliente/herramientas-cliente/` | Chart que crea las Applications del cliente (cert-manager, Reloader, Prometheus, logging-operator) y los certificados de la ingesta | `k0s-cliente` |
 | `doc/` | Notas y decisiones pendientes (p. ej. [opciones de WAF/OWASP](doc/opciones-waf-owasp.md)) | — |
 
 | Nodo | IP | kubeconfig |

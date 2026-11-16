@@ -24,21 +24,22 @@ spec:
           appName: cliente-demo
         # Lo propio de este cliente: su nombre (= CLUSTER_NAME de monitoring-secrets), que es el host de la ingesta,
         # el CN del certificado y el tenant. Fluentd lo toma de CLUSTER_NAME.
+        ingesta:
+          nombre: cliente-demo
+          # DEMO: 1 h para ver renovaciones en directo (cada ~10 min). El chart trae 24h / 8h.
+          certificado: {duracion: 1h, renovarAntes: 50m}
         apps:
           monitoring:
             source:
               helm:
                 valuesObject:
                   ingesta: {nombre: cliente-demo}
-          ingesta-mtls:
-            source:
-              helm:
-                valuesObject:
-                  nombre: cliente-demo
-                  # DEMO: 1 h para ver renovaciones en directo (cada ~10 min). El chart trae 24h / 8h.
-                  certificado: {duracion: 1h, renovarAntes: 50m}
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
   syncPolicy:
     automated: {prune: true, selfHeal: true}
+    # Los certificados de la ingesta usan CRDs de cert-manager, que instala una de las Applications hijas:
+    # hasta que existan, sin dry-run y reintentando.
+    syncOptions: [SkipDryRunOnMissingResource=true]
+    retry: {limit: 10, backoff: {duration: 20s, factor: 2, maxDuration: 5m}}

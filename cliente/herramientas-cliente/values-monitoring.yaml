@@ -6,51 +6,43 @@ global:
   charts-version:
     monitoring: &monitoring-version 92.10.1
     monitoring-crds: &monitoring-crds-version 32.0.1
-    ingesta-mtls-cliente: 0.1.0   # documental: se lee de cliente/ingesta-mtls-cliente
+
+# Ingesta mTLS, lado cliente: templates/ingesta-mtls.yaml (con el cert-manager de apps.cert-manager).
+# La CA del cliente y un certificado por namespace que envía. Se renuevan solos. Al central solo va el ca.crt.
+ingesta:
+  enabled: true
+  # **Requerido por cliente** (= CLUSTER_NAME): host <nombre>.ingest.<dominio>, CN del certificado y tenant.
+  # Va también en apps.monitoring.source.helm.valuesObject.ingesta.nombre (la URL de remoteWrite).
+  nombre: ""
+  ca:
+    # En el namespace de cert-manager: los ClusterIssuer leen sus Secrets de ahí.
+    namespace: cert-manager
+    secretName: ingesta-ca
+    duracion: 43800h          # 5 años. Cambiarla = mandar el ca.crt nuevo al central
+    # COPIA DE SEGURIDAD del Secret tras el alta: si se pierde, cert-manager crea otra CA y el central deja de
+    # aceptar a este cliente hasta recibir el ca.crt nuevo.
+  certificado:
+    secretName: ingesta-mtls
+    duracion: 24h
+    renovarAntes: 8h          # si caducó (clúster parado), se vuelve a emitir al arrancar
+    namespaces: [monitoring, logging]   # Prometheus y Fluentd: cada uno con su certificado y su clave
+  # CA raíz del certificado de SERVIDOR del central, solo si NO es de una CA pública (laboratorio): crea el
+  # Secret ingesta-ca-servidor en cada namespace de arriba. Aquí, monitoring/ingesta-ca-servidor de k0s-central;
+  # si se recrea el central, hay que volver a copiarla. Vacía = no se crea.
+  servidorCA: |
+    -----BEGIN CERTIFICATE-----
+    MIIBgDCCASagAwIBAgIURV/ND/TrMXshpb9YclocLQFOgQAwCgYIKoZIzj0EAwIw
+    HjEcMBoGA1UEAxMTaW5nZXN0YS1jYS1zZXJ2aWRvcjAeFw0yNjExMTMxNTE4MTBa
+    Fw0zNjExMTAxNTE4MTBaMB4xHDAaBgNVBAMTE2luZ2VzdGEtY2Etc2Vydmlkb3Iw
+    WTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQuuMHOu4/3Xl0Gj1gKz6hdDDXPlIm4
+    oW2ob37Mfh7JsNAKhxIhNqplXAmyjoRcV3cIyGwZX+s9z7g4Q0B3SwiPo0IwQDAO
+    BgNVHQ8BAf8EBAMCAqQwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUuT4L42iC
+    mSKcmY63h6FowAod894wCgYIKoZIzj0EAwIDSAAwRQIgbFQJE28A2xv43NDtCWuT
+    EXU0evrkeXAqwT0qgDRf7pUCIQDTSpyAvcbStOnBc224bvLTT/yzAwjDxuHOKVHT
+    gJV2mg==
+    -----END CERTIFICATE-----
 
 apps:
-  ########################
-  # Ingesta mTLS (nuevo) #
-  ########################
-  # La CA del cliente y un certificado por namespace que envía. Se renuevan solos. Al central solo va el ca.crt.
-  ingesta-mtls:
-    enabled: true
-    source:
-      # Leído de este repo, sin registro de charts (versión en su Chart.yaml)
-      repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
-      targetRevision: main
-      path: cliente/ingesta-mtls-cliente
-      helm:
-        valuesObject:
-          # **Requerido por cliente** (= CLUSTER_NAME): apps.ingesta-mtls.source.helm.valuesObject.nombre
-          nombre: ""
-          ca:
-            duracion: 43800h        # 5 años
-          certificado:
-            duracion: 24h
-            renovarAntes: 8h
-            namespaces: [monitoring, logging]
-          # CA raíz del certificado de SERVIDOR del central. El cliente solo confía en ella para la ingesta
-          # (en producción, la raíz pública del certificado del central; aquí, la del laboratorio).
-          # CA raíz del certificado de SERVIDOR del central (k0s-central): Secret monitoring/ingesta-ca-servidor.
-          # El cliente solo confía en ella para la ingesta. Si se recrea el central, hay que volver a copiarla.
-          servidorCA: |
-            -----BEGIN CERTIFICATE-----
-            MIIBgDCCASagAwIBAgIURV/ND/TrMXshpb9YclocLQFOgQAwCgYIKoZIzj0EAwIw
-            HjEcMBoGA1UEAxMTaW5nZXN0YS1jYS1zZXJ2aWRvcjAeFw0yNjExMTMxNTE4MTBa
-            Fw0zNjExMTAxNTE4MTBaMB4xHDAaBgNVBAMTE2luZ2VzdGEtY2Etc2Vydmlkb3Iw
-            WTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQuuMHOu4/3Xl0Gj1gKz6hdDDXPlIm4
-            oW2ob37Mfh7JsNAKhxIhNqplXAmyjoRcV3cIyGwZX+s9z7g4Q0B3SwiPo0IwQDAO
-            BgNVHQ8BAf8EBAMCAqQwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUuT4L42iC
-            mSKcmY63h6FowAod894wCgYIKoZIzj0EAwIDSAAwRQIgbFQJE28A2xv43NDtCWuT
-            EXU0evrkeXAqwT0qgDRf7pUCIQDTSpyAvcbStOnBc224bvLTT/yzAwjDxuHOKVHT
-            gJV2mg==
-            -----END CERTIFICATE-----
-    destination: {namespace: cert-manager}
-    syncPolicy:
-      syncOptions: [CreateNamespace=true, SkipDryRunOnMissingResource=true]
-      automated: {prune: true, selfHeal: true}
-
   # cortex-tenant NO va en el cliente. Si un mismo certificado tuviera que
   # enviar varios clústeres, el central lo enruta por su cortex-tenant (metricasPorCortexTenant en el central).
   monitoring-tenant:

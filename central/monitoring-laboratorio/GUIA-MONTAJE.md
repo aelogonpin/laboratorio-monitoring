@@ -49,8 +49,7 @@ Mimir y Loki no tienen ruta: se entra con `kubectl port-forward` (los comandos s
 | `central/monitoring-laboratorio/` | `values-laboratorio.yaml`, chart `kafka/` y las Applications (`argocd/`) |
 | `central/herramientas-ingesta/` | `alta-cliente.sh` / `baja-cliente.sh` (en tu equipo, editan `values-laboratorio.yaml`) |
 | `cliente/cliente-demo-k8s/` | `raiz.yaml` y las Applications del cliente |
-| `cliente/herramientas-cliente/` | Chart que genera las Applications de las herramientas del cliente |
-| `cliente/ingesta-mtls-cliente/` | Chart de la CA y el certificado del cliente |
+| `cliente/herramientas-cliente/` | Chart que genera las Applications de las herramientas del cliente y los certificados de la ingesta |
 
 ---
 
@@ -147,12 +146,12 @@ kubectl apply -f cliente/cliente-demo-k8s/raiz.yaml
 | `local-path-provisioner` | v0.0.37 (`values-almacenamiento.yaml`) | StorageClass para el buffer de Fluentd. El clúster no trae ninguna |
 | `cert-manager` | v1.21.2 | Crea la **CA del cliente** y renueva su certificado |
 | `reloader` | 2.2.18 | Reinicia Fluentd cuando cambia el certificado, porque Fluentd solo lo lee al arrancar |
-| `ingesta-mtls` | `cliente/ingesta-mtls-cliente` 0.1.0 | CA de 5 años, certificado de cliente de 24 h (se renueva 8 h antes; en cliente-demo, 1 h para verlo) copiado a `monitoring` y `logging`, y la CA del servidor central (`servidorCA`) |
+| (sin Application) | `ingesta:` de `herramientas-cliente` | CA de 5 años, certificado de cliente de 24 h (se renueva 8 h antes; en cliente-demo, 1 h para verlo) copiado a `monitoring` y `logging`, y la CA del servidor central (`servidorCA`) |
 | `monitoring-crds` | `prometheus-operator-crds` 32.0.1 | CRDs del operador |
 | `monitoring` | `kube-prometheus-stack` 92.10.1 | Prometheus con `remoteWrite` a `https://cliente-demo.ingest.10.99.90.223.nip.io/api/v1/push` con el certificado |
 | `logging` | `logging-operator` 6.9.0 | Fluentd con output Loki a `https://cliente-demo.ingest.10.99.90.223.nip.io` con el certificado |
 
-`herramientas-cliente` e `ingesta-mtls-cliente` se leen por ruta de este repo (`targetRevision: main`). Para fijar
+`herramientas-cliente` se lee por ruta de este repo (`targetRevision: main`). Para fijar
 una versión: un tag de Git y ese tag en el `targetRevision`.
 
 ### 2.3 Comprobaciones del cliente

@@ -1,0 +1,63 @@
+{{- /*
+Ingesta mTLS, lado cliente (se activa con ingesta.enabled). Con el cert-manager del clúster:
+- la CA del cliente (al central solo va su ca.crt);
+- un certificado de cliente por namespace que envía (Prometheus, Fluentd), que se renueva solo;
+- si el certificado de servidor del central no es de una CA pública, su CA (Secret ingesta-ca-servidor).
+cert-manager lo instala apps.cert-manager: hasta que existan sus CRDs, el sync reintenta.
+*/ -}}
+{{- with .Values.ingesta }}
+{{- if .enabled }}
+{{- $n := required "ingesta.nombre (= CLUSTER_NAME del cliente)" .nombre }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata: {name: ingesta-autofirmado-{{ $n }}}
+spec: {selfSigned: {}}
+---
+# CA del cliente. Nunca se borra (ni al quitar la ingesta ni al borrar la Application): el central confía en su
+# ca.crt. rotationPolicy Never: si cert-manager la renueva, mantiene la misma clave.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ingesta-ca-{{ $n }}
+  namespace: {{ .ca.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-options: Delete=false
+    helm.sh/resource-policy: keep
+spec:
+  isCA: true
+  secretName: {{ .ca.secretName }}
+  commonName: ingesta-ca-{{ $n }}
+  duration: {{ .ca.duracion }}
+  privateKey: {algorithm: RSA, size: 4096, rotationPolicy: Never}
+  issuerRef: {name: ingesta-autofirmado-{{ $n }}, kind: ClusterIssuer}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata: {name: ingesta-ca-{{ $n }}}
+spec: {ca: {secretName: {{ .ca.secretName }}}}
+{{- range $ns := .certificado.namespaces }}
+---
+# Certificado de cliente en {{ . }}. RSA: el plugin Loki de Fluentd no acepta ECDSA.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: {name: {{ $.Values.ingesta.certificado.secretName }}, namespace: {{ . }}}
+spec:
+  secretName: {{ $.Values.ingesta.certificado.secretName }}
+  commonName: {{ $n }}
+  usages: [client auth, digital signature]
+  duration: {{ $.Values.ingesta.certificado.duracion }}
+  renewBefore: {{ $.Values.ingesta.certificado.renovarAntes }}
+  privateKey: {algorithm: RSA, size: 2048, rotationPolicy: Always}
+  issuerRef: {name: ingesta-ca-{{ $n }}, kind: ClusterIssuer}
+{{- with $.Values.ingesta.servidorCA }}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: ingesta-ca-servidor, namespace: {{ $ns }}}
+stringData:
+  ca.crt: |
+{{ . | trim | indent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

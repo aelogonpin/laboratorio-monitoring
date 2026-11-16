@@ -1,7 +1,7 @@
 # Base de las herramientas del cliente. Cada bloque se activa con enabled.
 # Versiones EXACTAS: un cambio de versión es un commit aquí y una versión nueva de este chart.
 global:
-  # -- Nombre del cliente/clúster (documental). La ingesta lo pide en apps.ingesta-mtls y apps.monitoring.
+  # -- Nombre del cliente/clúster (documental). La ingesta lo pide en ingesta.nombre y apps.monitoring.
   appName: ""
   argocdNamespace: argocd
   charts-version:
