@@ -7,7 +7,7 @@ cert-manager lo instala apps.cert-manager: hasta que existan sus CRDs, el sync r
 */ -}}
 {{- with .Values.ingesta }}
 {{- if .enabled }}
-{{- $n := required "ingesta.nombre (= CLUSTER_NAME del cliente)" .nombre }}
+{{- $n := required "global.appName (= CLUSTER_NAME del cliente)" $.Values.global.appName }}
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata: {name: ingesta-autofirmado-{{ $n }}}

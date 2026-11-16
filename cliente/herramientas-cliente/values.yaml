@@ -1,7 +1,9 @@
 # Base de las herramientas del cliente. Cada bloque se activa con enabled.
 # Versiones EXACTAS: un cambio de versión es un commit aquí y una versión nueva de este chart.
 global:
-  # -- Nombre del cliente/clúster (documental). La ingesta lo pide en ingesta.nombre y apps.monitoring.
+  # -- **Requerido por cliente**: su nombre (= CLUSTER_NAME de monitoring-secrets). Único sitio donde se escribe:
+  # es el host <nombre>.ingest.<dominio>, el CN del certificado y el tenant en el central. Lo usan los
+  # certificados de la ingesta y las apps cuyo valuesObject trae `ingesta:` (se les rellena ingesta.nombre).
   appName: ""
   argocdNamespace: argocd
   charts-version:

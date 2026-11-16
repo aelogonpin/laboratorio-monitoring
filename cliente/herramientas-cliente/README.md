@@ -11,7 +11,7 @@ lee directamente de este repo (`path: cliente/herramientas-cliente`) con `global
 | `values-logging.yaml` | logging-operator: Fluentd hacia Loki por mTLS |
 | `values-almacenamiento.yaml` | local-path-provisioner, para clústeres sin StorageClass (buffer de Fluentd) |
 
-El nombre del cliente (= `CLUSTER_NAME`) se declara en `ingesta.nombre` y `apps.monitoring...ingesta.nombre`; Fluentd lo toma de `CLUSTER_NAME`. En `apps` no se aplica tpl: las `{{ }}` las evalúa el chart de destino.
+El nombre del cliente (= `CLUSTER_NAME` de `monitoring-secrets`) se escribe **una vez**, en `global.appName`: lo usan los certificados de la ingesta y se copia a `ingesta.nombre` de toda app cuyo `valuesObject` traiga `ingesta:` (la URL de Prometheus). Fluentd lo toma de `CLUSTER_NAME`. En `apps` no se aplica tpl: las `{{ }}` las evalúa el chart de destino.
 
 Los certificados de la ingesta usan los CRDs de cert-manager, que instala `apps.cert-manager`: la Application de este
 chart necesita `SkipDryRunOnMissingResource=true` y `retry`. La CA del cliente lleva `Delete=false`: no se borra

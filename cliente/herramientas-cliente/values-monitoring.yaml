@@ -11,9 +11,7 @@ global:
 # La CA del cliente y un certificado por namespace que envía. Se renuevan solos. Al central solo va el ca.crt.
 ingesta:
   enabled: true
-  # **Requerido por cliente** (= CLUSTER_NAME): host <nombre>.ingest.<dominio>, CN del certificado y tenant.
-  # Va también en apps.monitoring.source.helm.valuesObject.ingesta.nombre (la URL de remoteWrite).
-  nombre: ""
+  # El nombre del cliente es global.appName.
   ca:
     # En el namespace de cert-manager: los ClusterIssuer leen sus Secrets de ahí.
     namespace: cert-manager
@@ -74,9 +72,8 @@ apps:
       helm:
         skipCrds: true
         valuesObject:
-          # **Requerido por cliente** (= CLUSTER_NAME): apps.monitoring.source.helm.valuesObject.ingesta.nombre
+          # ingesta.nombre lo rellena herramientas-cliente con global.appName (no se escribe aquí)
           ingesta:
-            nombre: ""
             dominio: ingest.10.99.90.223.nip.io
           nameOverride: prometheus
           namespaceOverride: monitoring
