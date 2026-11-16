@@ -77,7 +77,8 @@ grafana:
       cpu: 100m
       memory: 256Mi
     limits:
-      memory: 1Gi
+      # Explore con miles de series (p. ej. {cluster="x"}, ~16k series y ~75 MB de JSON) no cabía en 1Gi
+      memory: 3Gi
   image:
     tag: 13.2.4-distroless
   plugins: []
@@ -572,7 +573,7 @@ mimir:
     replicas: 1
     resources:
       requests: {cpu: 50m, memory: 128Mi}
-      limits: {memory: 1Gi}
+      limits: {memory: 2Gi}
   query_frontend:
     replicas: 1
     # En Mimir 3 el query-frontend junta los resultados de las consultas repartidas y los pasa a JSON: una consulta
