@@ -575,9 +575,12 @@ mimir:
       limits: {memory: 1Gi}
   query_frontend:
     replicas: 1
+    # En Mimir 3 el query-frontend junta los resultados de las consultas repartidas y los pasa a JSON: una consulta
+    # de rango sin agregar sobre todo un clúster (p. ej. {cluster="x"} en Explore, ~14k series) no cabía en 512Mi
+    # (OOMKilled -> 502 en el gateway).
     resources:
-      requests: {cpu: 20m, memory: 64Mi}
-      limits: {memory: 512Mi}
+      requests: {cpu: 20m, memory: 128Mi}
+      limits: {memory: 2Gi}
   query_scheduler:
     replicas: 1
     resources:
