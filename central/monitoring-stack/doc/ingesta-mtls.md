@@ -53,7 +53,7 @@ Cliente (Prometheus / Fluentd)                         Central
 | Objeto (CRD) | De quién es el CRD | Para qué |
 |---|---|---|
 | Listener `<cliente>` del `Gateway ingesta` | Gateway API | Host `<cliente>.ingest.<dominio>`, HTTPS 443, certificado de servidor |
-| `Secret ingesta-ca-<cliente>` | Kubernetes | Parte **pública** de la CA del cliente, clave `ca.crt`. Con `caSecret: true` **no lo crea el chart**: está en `ingesta.casClientes.namespace` (`ingesta-clientes`) y lo crea `alta-cliente.sh` (o External Secrets). Con `cas:` lo crea el chart en el namespace de la release. Varias CAs en el mismo `ca.crt` = cambio de CA sin corte |
+| `Secret ingesta-ca-<cliente>` | Kubernetes | Parte **pública** de la CA del cliente, clave `ca.crt`. Con `caSecret: true` **no lo crea el chart**: está en `ingesta.casClientes.namespace` (`ingesta-clientes`) y se crea a mano (ver la guía) o con External Secrets. Con `cas:` lo crea el chart en el namespace de la release. Varias CAs en el mismo `ca.crt` = cambio de CA sin corte |
 | `ReferenceGrant ingesta-cas-desde-<release>` + `Namespace` | Gateway API | Solo con `caSecret` en otro namespace: deja a las `ClientTrafficPolicy` leer esos Secrets. El Namespace lleva `Delete=false` |
 | `ClientTrafficPolicy ingesta-<cliente>` | Envoy Gateway | En **su** listener solo acepta certificados de **su** CA (TLS ≥ 1.2) |
 | `HTTPRoute ingesta-<cliente>` | Gateway API | Solo rutas de envío (`/loki/api/v1/push`, `/otlp/v1/logs`, `/api/v1/push`, `/otlp/v1/metrics`) y `X-Scope-OrgID` fijo |
@@ -86,25 +86,19 @@ ingesta:
 
 ## Alta y baja
 
-Con `central/herramientas-ingesta/` del repo del laboratorio, sobre el values del entorno:
+Paso a paso, a mano y explicando cada comando: `central/GUIA-CLIENTES-INGESTA.md` del repo del laboratorio.
+En resumen:
 
-```bash
-# KUBECONFIG del central
-herramientas/alta-cliente.sh -f values-entorno.yaml cliente-x ca.crt 203.0.113.10/32
-#  comprueba que es una CA, que no ha caducado y que no es de otro cliente; imprime la huella
-#  crea/actualiza el Secret ingesta-ca-cliente-x en el central (solo ca.crt)
-#  añade el cliente a ingesta.clientes (nombre, caSecret, IPs) y su tenant a global.parameters.grafanaClusters
-#  -> comparar la huella con la del cliente POR OTRO CANAL, commit + push: Argo CD crea todo lo de arriba
-#  --sin-secret: no toca el clúster, imprime el Secret (External Secrets, otro equipo)
+- **Alta**: comprobar la CA del cliente y su huella, crear su Secret `ingesta-ca-<cliente>` en
+  `ingesta.casClientes.namespace` (antes que el values), y añadirlo a `ingesta.clientes` y a `grafanaClusters`.
+- **Cambio de CA**: las dos CAs seguidas en el `ca.crt` del Secret; cuando el cliente use la nueva, solo esa.
+- **Baja**: primero el values (push y sync); cuando su ClientTrafficPolicy ya no exista, anotar el Secret con
+  `ingesta.borrable=true` y borrarlo.
 
-# Cambio de CA sin corte
-herramientas/alta-cliente.sh -f values-entorno.yaml --anadir cliente-x ca-nueva.crt   # valen las dos
-herramientas/alta-cliente.sh -f values-entorno.yaml cliente-x ca-nueva.crt            # ya solo la nueva
-
-# Baja, en este orden
-herramientas/baja-cliente.sh -f values-entorno.yaml cliente-x     # commit + push, esperar al sync
-herramientas/baja-cliente.sh --borrar-secret cliente-x            # se niega si su ClientTrafficPolicy sigue
-```
+Protecciones del Secret de CA (`casClientes.proteger`):
+- una ValidatingAdmissionPolicy que impide borrarlo sin la anotación, dejarlo sin PEM o quitarle la etiqueta
+  `ingesta.cliente`;
+- las alertas críticas `IngestaCASecretFalta` e `IngestaPoliticaClienteNoAplicada`.
 
 Lo que sigue siendo de personas: recibir el `ca.crt` del cliente y **comprobar su huella por otro canal** (es lo que
 evita dar de alta a un impostor) y, si se usa, su IP de salida.

@@ -10,7 +10,7 @@ Dos clústeres k0s de un nodo; sus dos Argo CD leen este repo (público, sin cre
 |---|---|---|
 | `central/monitoring-stack/` | Chart monitoring-stack 2.0.0 (umbrella de charts oficiales + `templates/ingesta/`) | `k0s-central`, Applications `monitoring` y `logging` |
 | `central/monitoring-laboratorio/` | Values del laboratorio, chart de Kafka, Applications de Argo CD y **[GUIA-MONTAJE.md](central/monitoring-laboratorio/GUIA-MONTAJE.md)** | `k0s-central` |
-| `central/herramientas-ingesta/` | `alta-cliente.sh` / `baja-cliente.sh`: alta o baja de un cliente (su CA en un Secret del central, su entrada en el values) | Tu equipo |
+| `central/GUIA-CLIENTES-INGESTA.md` | Guía de alta, cambio de CA y baja de clientes, paso a paso (su CA en un Secret del central, su entrada en el values) | Tu equipo |
 | `central/infra/` | Base del central como Applications de Argo CD (`aplicaciones/`): local-path, MetalLB, Envoy Gateway, cert-manager, CNPG, SeaweedFS, Secrets del laboratorio | `k0s-central` |
 | `central/raiz.yaml` | Aplicación raíz del central: base, kafka, monitoring y logging, por olas | `k0s-central`, `kubectl apply` una vez |
 | `cliente/infra/argocd/` | Values del Argo CD del cliente | `k0s-cliente` |

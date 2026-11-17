@@ -16,7 +16,7 @@ El Secret `monitoring-secrets` (`clusterName`, `distro`) está en `secretos/` y 
 ## Alta en el central
 
 Al primer arranque, cert-manager crea la CA del cliente. Su parte pública se manda al central, que la da de alta
-(`alta-cliente.sh cliente-demo ca.crt <ip>/32`) y comprueba la huella por otro canal:
+(`central/GUIA-CLIENTES-INGESTA.md`, sección 1) y comprueba la huella por otro canal:
 
 ```bash
 kubectl -n cert-manager get secret ingesta-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt

@@ -13,7 +13,7 @@ global:
     monitoring: monitoring.10.99.90.223.nip.io
   parameters:
     clusterName: k0s-central
-    # alta-cliente.sh añade aquí cada cliente
+    # el tenant de cada cliente (central/GUIA-CLIENTES-INGESTA.md)
     grafanaClusters: k0s-central|cliente-demo
 grafana:
   route:
@@ -80,8 +80,8 @@ ingesta:
   servidorTLS:
     crear: true
   # Clientes de la ingesta mTLS. Aquí solo el nombre: su CA pública va en el Secret ingesta-ca-<nombre> del
-  # namespace ingesta-clientes (ingesta.casClientes), que crea alta-cliente.sh, no Argo CD.
-  # Alta: central/herramientas-ingesta/alta-cliente.sh -f values-laboratorio.yaml <nombre> ca.crt <ip>/32
+  # namespace ingesta-clientes (ingesta.casClientes), que se crea a mano antes, no Argo CD.
+  # Alta, cambio de CA y baja: central/GUIA-CLIENTES-INGESTA.md
   # (cliente-demo: k0s-cliente, 10.99.90.179/32)
   clientes:
     # Alta 2026-11-13. Huella SHA-256 de la CA: 07:36:D1:F6:35:2D:7E:1D:40:62:03:FB:15:11:CF:69:B5:50:81:4E:B5:79:B9:D3:31:E2:03:9F:D1:2E:E0:3D

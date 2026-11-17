@@ -11,4 +11,4 @@ ningún entorno; aquí está todo lo de este.
 | `GUIA-MONTAJE.md` | Qué instalar en cada nodo y en qué orden |
 
 Las crea la aplicación raíz `central/raiz.yaml` (kafka en la ola 0; monitoring y logging en la 1).
-Altas y bajas de clientes: `central/herramientas-ingesta/alta-cliente.sh -f values-laboratorio.yaml ...`.
+Altas y bajas de clientes: `central/GUIA-CLIENTES-INGESTA.md`.

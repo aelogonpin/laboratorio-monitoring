@@ -47,7 +47,7 @@ Mimir y Loki no tienen ruta: se entra con `kubectl port-forward` (los comandos s
 | `central/raiz.yaml` + `central/infra/` | Aplicación raíz del central y su base como Applications de Argo CD (local-path, MetalLB, Envoy Gateway, cert-manager, CNPG, SeaweedFS, Secrets) |
 | `central/monitoring-stack/` | Chart 2.0.0. Applications `monitoring` y `logging` |
 | `central/monitoring-laboratorio/` | `values-laboratorio.yaml`, chart `kafka/` y las Applications (`argocd/`) |
-| `central/herramientas-ingesta/` | `alta-cliente.sh` / `baja-cliente.sh` (en tu equipo: el Secret con la CA del cliente en el central y su entrada en `values-laboratorio.yaml`) |
+| `central/GUIA-CLIENTES-INGESTA.md` | Alta, cambio de CA y baja de clientes a mano: el Secret con su CA en el central y su entrada en `values-laboratorio.yaml` |
 | `cliente/cliente-demo-k8s/` | `raiz.yaml` y las Applications del cliente |
 | `cliente/herramientas-cliente/` | Chart que genera las Applications de las herramientas del cliente y los certificados de la ingesta |
 
@@ -183,11 +183,11 @@ Hay un ida y vuelta de partes **públicas**. No viaja ninguna clave privada.
    ```bash
    kubectl --kubeconfig ~/.kube/k0s-cliente.yaml -n cert-manager get secret ingesta-ca \
      -o jsonpath='{.data.ca\.crt}' | base64 -d > ca-cliente-demo.crt
-   KUBECONFIG=~/.kube/k0s-central.yaml central/herramientas-ingesta/alta-cliente.sh \
-     -f central/monitoring-laboratorio/values-laboratorio.yaml cliente-demo ca-cliente-demo.crt 10.99.90.179/32
    ```
-   Crea el Secret `ingesta-clientes/ingesta-ca-cliente-demo` en el central (la CA no va en el values) y añade el
-   cliente a `values-laboratorio.yaml`. Comprueba la huella que imprime. Después, commit y push; Argo CD lo aplica.
+   Después, el alta en el central, siguiendo `central/GUIA-CLIENTES-INGESTA.md` (sección 1):
+   - comprobar la CA y su huella;
+   - crear el Secret `ingesta-clientes/ingesta-ca-cliente-demo` (la CA no va en el values);
+   - añadir el cliente a `values-laboratorio.yaml`, con commit y push. Argo CD lo aplica.
    `ca-cliente-demo.crt` no hace falta subirlo.
 5. **Comprobar que llega**, desde el central, por port-forward a Prometheus:
    ```bash

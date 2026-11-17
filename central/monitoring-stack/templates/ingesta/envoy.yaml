@@ -77,7 +77,7 @@ spec:
       caCertificateRefs:
       {{- if .caSecret }}
       {{- $ref := include "ms.ingesta.caRef" (dict "c" . "root" $) | fromJson }}
-      # Secret que NO crea el chart (alta-cliente.sh, External Secrets...): clave ca.crt
+      # Secret que NO crea el chart (a mano o External Secrets: GUIA-CLIENTES-INGESTA.md): clave ca.crt
       - kind: Secret
         name: {{ $ref.name }}
         {{- if ne $ref.namespace $ns }}
