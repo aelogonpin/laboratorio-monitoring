@@ -40,7 +40,7 @@ spec:
     reason: Forbidden
   - expression: >-
       request.operation == 'DELETE' ||
-      (object.?data[?'ca.crt'].hasValue() && string(object.data['ca.crt']).contains('-----BEGIN CERTIFICATE-----'))
+      (object.?data[?'ca.crt'].hasValue() && string(base64.decode(object.data['ca.crt'])).contains('-----BEGIN CERTIFICATE-----'))
     message: "La CA de un cliente de la ingesta necesita ca.crt con al menos un certificado PEM"
     reason: Invalid
   - expression: >-
