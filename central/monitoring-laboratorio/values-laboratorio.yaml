@@ -88,6 +88,3 @@ ingesta:
     - nombre: cliente-demo
       caSecret: true
       ipPermitidas: [10.99.90.179/32]
-    # PRUEBA de la guía (se quita enseguida)
-    - nombre: cliente-prueba
-      caSecret: true
