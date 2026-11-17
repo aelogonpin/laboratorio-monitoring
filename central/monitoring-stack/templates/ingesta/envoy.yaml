@@ -75,8 +75,18 @@ spec:
     minVersion: "1.2"
     clientValidation:
       caCertificateRefs:
+      {{- if .caSecret }}
+      {{- $ref := include "ms.ingesta.caRef" (dict "c" . "root" $) | fromJson }}
+      # Secret que NO crea el chart (alta-cliente.sh, External Secrets...): clave ca.crt
+      - kind: Secret
+        name: {{ $ref.name }}
+        {{- if ne $ref.namespace $ns }}
+        namespace: {{ $ref.namespace }}
+        {{- end }}
+      {{- else }}
       - kind: Secret
         name: {{ if .cas }}ingesta-ca-{{ .nombre }}{{ else }}ca-{{ .nombre }}{{ end }}
+      {{- end }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -131,6 +141,36 @@ spec:
       principal:
         clientCIDRs: {{ toJson .ipPermitidas }}
 {{- end }}
+{{- end }}
+{{- /* Namespaces de los Secrets de CA (modo caSecret) distintos del de la release: ReferenceGrant para las
+ClientTrafficPolicy y, si es el de casClientes y crearNamespace, el Namespace. */}}
+{{- $nsCas := list }}
+{{- range $clientes }}
+{{- if .caSecret }}
+{{- $ref := include "ms.ingesta.caRef" (dict "c" . "root" $) | fromJson }}
+{{- if and (ne $ref.namespace $ns) (not (has $ref.namespace $nsCas)) }}{{ $nsCas = append $nsCas $ref.namespace }}{{ end }}
+{{- end }}
+{{- end }}
+{{- range $nsCas }}
+{{- if and $.Values.ingesta.casClientes.crearNamespace (eq . $.Values.ingesta.casClientes.namespace) }}
+---
+# Namespace de las CAs de los clientes. Nunca se borra con la Application: ahí están los Secrets que no son del chart.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ . }}
+  annotations:
+    argocd.argoproj.io/sync-options: Delete=false
+    helm.sh/resource-policy: keep
+{{- end }}
+---
+# Las ClientTrafficPolicy de la ingesta ({{ $ns }}) pueden leer las CAs de clientes de este namespace
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata: {name: ingesta-cas-desde-{{ $ns }}, namespace: {{ . }}}
+spec:
+  from: [{group: gateway.envoyproxy.io, kind: ClientTrafficPolicy, namespace: {{ $ns }}}]
+  to: [{group: "", kind: Secret}]
 {{- end }}
 {{- $otros := list }}
 {{- range (list $.Values.ingesta.backends.loki $.Values.ingesta.backends.mimir $.Values.ingesta.cortexTenant) }}

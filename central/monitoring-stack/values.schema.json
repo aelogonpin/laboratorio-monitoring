@@ -78,7 +78,37 @@
                   "type": "string",
                   "pattern": "BEGIN CERTIFICATE"
                 }
+              },
+              "caSecret": {
+                "oneOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "namespace": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
               }
+            }
+          }
+        },
+        "casClientes": {
+          "type": "object",
+          "properties": {
+            "namespace": {
+              "type": "string"
+            },
+            "crearNamespace": {
+              "type": "boolean"
             }
           }
         }

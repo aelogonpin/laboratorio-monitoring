@@ -57,6 +57,8 @@ stringData:
   ca.crt: |
 {{ $pem | trim | indent 4 }}
 {{- end }}
+{{- else if .caSecret }}
+{{- /* Modo "CA en el cliente" con su CA en un Secret externo: aquí no se crea nada (ver envoy.yaml) */}}
 {{- else }}
 ---
 # CA propia de {{ .nombre }}: solo firma su certificado. keep: si se borra, el certificado del cliente deja de valer.

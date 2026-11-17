@@ -864,4 +864,16 @@ ingesta:
       enabled: true
       namespace: cert-manager
       selector: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/component: controller}
+  # CAs de los clientes con caSecret (modo "CA en el cliente"): un Secret por cliente que NO crea el chart
+  # (alta-cliente.sh, External Secrets...), ingesta-ca-<cliente> con la clave ca.crt. Varias CAs seguidas en el
+  # mismo ca.crt = cambio de CA sin corte. Namespace vacío = el de la release. Si es otro, el chart pone la
+  # ReferenceGrant y, con crearNamespace, el Namespace (Delete=false: no se borra con la Application).
+  casClientes:
+    namespace: ingesta-clientes
+    crearNamespace: true
+  # Cada cliente: nombre y su CA de una de estas formas:
+  #   caSecret: true                  -> Secret ingesta-ca-<nombre> en casClientes.namespace (recomendado)
+  #   caSecret: {name: x, namespace: y}
+  #   cas: [PEM, ...]                 -> la CA en el propio values
+  #   (ninguna)                       -> CA en el central: el central emite el certificado del cliente
   clientes: []
