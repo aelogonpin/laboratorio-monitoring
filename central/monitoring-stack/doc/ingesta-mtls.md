@@ -53,11 +53,12 @@ Cliente (Prometheus / Fluentd)                         Central
 | Objeto (CRD) | De quién es el CRD | Para qué |
 |---|---|---|
 | Listener `<cliente>` del `Gateway ingesta` | Gateway API | Host `<cliente>.ingest.<dominio>`, HTTPS 443, certificado de servidor |
-| `Secret ingesta-ca-<cliente>` | Kubernetes | Parte **pública** de la CA del cliente (`cas:`). Varias van en el mismo `ca.crt` = cambio de CA sin corte |
+| `Secret ingesta-ca-<cliente>` | Kubernetes | Parte **pública** de la CA del cliente, clave `ca.crt`. Con `caSecret: true` **no lo crea el chart**: está en `ingesta.casClientes.namespace` (`ingesta-clientes`) y lo crea `alta-cliente.sh` (o External Secrets). Con `cas:` lo crea el chart en el namespace de la release. Varias CAs en el mismo `ca.crt` = cambio de CA sin corte |
+| `ReferenceGrant ingesta-cas-desde-<release>` + `Namespace` | Gateway API | Solo con `caSecret` en otro namespace: deja a las `ClientTrafficPolicy` leer esos Secrets. El Namespace lleva `Delete=false` |
 | `ClientTrafficPolicy ingesta-<cliente>` | Envoy Gateway | En **su** listener solo acepta certificados de **su** CA (TLS ≥ 1.2) |
 | `HTTPRoute ingesta-<cliente>` | Gateway API | Solo rutas de envío (`/loki/api/v1/push`, `/otlp/v1/logs`, `/api/v1/push`, `/otlp/v1/metrics`) y `X-Scope-OrgID` fijo |
 | `SecurityPolicy ingesta-<cliente>` | Envoy Gateway | Solo si `ipPermitidas`: un certificado robado no sirve desde otra IP |
-| `Certificate ca-<cliente>` + `Issuer` + `Certificate cliente-<cliente>` | cert-manager | Solo en modo **CA en el central** (sin `cas:`, clientes sin cert-manager): el central emite su certificado y hay que entregárselo |
+| `Certificate ca-<cliente>` + `Issuer` + `Certificate cliente-<cliente>` | cert-manager | Solo en modo **CA en el central** (sin `cas:` ni `caSecret`, clientes sin cert-manager): el central emite su certificado y hay que entregárselo |
 
 Por qué un listener por cliente: la validación de cliente estándar de Gateway API va por puerto, no por host. Envoy
 Gateway la permite por listener con `ClientTrafficPolicy` + `sectionName`.
@@ -73,21 +74,36 @@ ingesta:
     ipPermitidas: [203.0.113.10/32] # opcional
     senales: [logs, metricas]       # opcional, por defecto las dos
     metricasPorCortexTenant: false  # opcional: varios clústeres por certificado -> tenant <cliente>-<cluster>
-    cas:
-    - |
-      -----BEGIN CERTIFICATE-----   # ca.crt del cert-manager del cliente (público)
+    caSecret: true                  # su CA: Secret ingesta-ca-cliente-x en ingesta.casClientes.namespace
+    # caSecret: {name: x, namespace: y}   otro Secret
+    # cas: [PEM]                          o la CA en el propio values (no recomendado)
 ```
+
+> **Ojo: el Secret de la CA tiene que existir mientras exista el listener.** Si falta (o su `ca.crt` no vale), la
+> `ClientTrafficPolicy` queda `Accepted=False` y Envoy deja de **exigir certificado** en ese listener: entra
+> cualquiera con el tenant de ese cliente. Probado en el laboratorio el 17/11/2026: solo lo paró `ipPermitidas`
+> (403). Por eso el alta crea el Secret antes del push y la baja lo borra después del sync.
 
 ## Alta y baja
 
 Con `central/herramientas-ingesta/` del repo del laboratorio, sobre el values del entorno:
 
 ```bash
+# KUBECONFIG del central
 herramientas/alta-cliente.sh -f values-entorno.yaml cliente-x ca.crt 203.0.113.10/32
 #  comprueba que es una CA, que no ha caducado y que no es de otro cliente; imprime la huella
-#  añade el cliente a ingesta.clientes y su tenant a global.parameters.grafanaClusters
+#  crea/actualiza el Secret ingesta-ca-cliente-x en el central (solo ca.crt)
+#  añade el cliente a ingesta.clientes (nombre, caSecret, IPs) y su tenant a global.parameters.grafanaClusters
 #  -> comparar la huella con la del cliente POR OTRO CANAL, commit + push: Argo CD crea todo lo de arriba
-herramientas/baja-cliente.sh -f values-entorno.yaml cliente-x
+#  --sin-secret: no toca el clúster, imprime el Secret (External Secrets, otro equipo)
+
+# Cambio de CA sin corte
+herramientas/alta-cliente.sh -f values-entorno.yaml --anadir cliente-x ca-nueva.crt   # valen las dos
+herramientas/alta-cliente.sh -f values-entorno.yaml cliente-x ca-nueva.crt            # ya solo la nueva
+
+# Baja, en este orden
+herramientas/baja-cliente.sh -f values-entorno.yaml cliente-x     # commit + push, esperar al sync
+herramientas/baja-cliente.sh --borrar-secret cliente-x            # se niega si su ClientTrafficPolicy sigue
 ```
 
 Lo que sigue siendo de personas: recibir el `ca.crt` del cliente y **comprobar su huella por otro canal** (es lo que
