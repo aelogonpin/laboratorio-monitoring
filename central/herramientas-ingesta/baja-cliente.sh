@@ -4,7 +4,8 @@
 #      Lo quita de ingesta.clientes y su tenant de grafanaClusters. Después: git commit + push. Argo CD borra su
 #      listener, ClientTrafficPolicy, HTTPRoute y SecurityPolicy: queda fuera en el TLS.
 #   2) baja-cliente.sh --borrar-secret [-n namespace] <nombre>      (con el KUBECONFIG del central)
-#      Borra su Secret ingesta-ca-<nombre>, solo si Argo CD ya quitó su ClientTrafficPolicy.
+#      Borra su Secret ingesta-ca-<nombre> (le pone ingesta.borrable=true, que exige la ValidatingAdmissionPolicy),
+#      solo si Argo CD ya quitó su ClientTrafficPolicy.
 # El orden importa: si el Secret desaparece con el listener aún puesto, Envoy deja de exigir el certificado en ese
 # listener (la ClientTrafficPolicy queda sin aplicar). Los datos ya enviados se quedan en Mimir/Loki.
 set -euo pipefail
@@ -28,7 +29,11 @@ if [ -n "$BORRAR" ]; then
   if kubectl -n "$REL" get clienttrafficpolicy "ingesta-$N" >/dev/null 2>&1; then
     echo "La ClientTrafficPolicy $REL/ingesta-$N sigue: primero el paso 1 (values + push) y que Argo CD sincronice" >&2; exit 1
   fi
-  kubectl -n "$NS" delete secret "ingesta-ca-$N" --ignore-not-found
+  if kubectl -n "$NS" get secret "ingesta-ca-$N" >/dev/null 2>&1; then
+    # La ValidatingAdmissionPolicy de la ingesta solo deja borrarlo con esta anotación
+    kubectl -n "$NS" annotate secret "ingesta-ca-$N" ingesta.borrable=true --overwrite >/dev/null
+    kubectl -n "$NS" delete secret "ingesta-ca-$N"
+  else echo "No existe $NS/ingesta-ca-$N"; fi
   exit 0
 fi
 

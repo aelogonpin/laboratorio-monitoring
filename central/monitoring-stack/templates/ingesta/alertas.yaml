@@ -47,6 +47,28 @@ spec:
         description: "Revisar con el agente diagnostico-ingesta-mtls: certificado (cert-manager del cliente), red o agentes."
 {{- end }}
 {{- end }}
+{{- range (include "ms.ingesta.clientes" $ | fromJsonArray) }}
+{{- $m := printf "ingesta_clienttrafficpolicy_condicion{namespace=\"%s\", name=\"ingesta-%s\", type=\"Accepted\"}" $.Release.Namespace .nombre }}
+    # Sin la ClientTrafficPolicy aplicada, Envoy NO exige certificado en el listener de {{ .nombre }}.
+    # Métrica de kube-state-metrics (customResourceState, values prometheus.kube-state-metrics).
+    - alert: IngestaPoliticaClienteNoAplicada
+      expr: ({{ $m }} == 0) or absent({{ $m }})
+      for: 2m
+      labels: {severity: critical, cliente: {{ .nombre }}}
+      annotations:
+        summary: "{{ .nombre }}: su ClientTrafficPolicy no está aplicada; su listener de la ingesta NO exige certificado"
+        description: "kubectl -n {{ $.Release.Namespace }} get clienttrafficpolicy ingesta-{{ .nombre }} -o yaml (status). Lo normal: falta su Secret de CA o su ca.crt no vale."
+{{- if .caSecret }}
+{{- $ref := include "ms.ingesta.caRef" (dict "c" . "root" $) | fromJson }}
+    - alert: IngestaCASecretFalta
+      expr: absent(kube_secret_info{namespace="{{ $ref.namespace }}", secret="{{ $ref.name }}"})
+      for: 2m
+      labels: {severity: critical, cliente: {{ .nombre }}}
+      annotations:
+        summary: "Falta el Secret {{ $ref.namespace }}/{{ $ref.name }} con la CA de {{ .nombre }}: su listener NO exige certificado"
+        description: "Volver a crearlo con alta-cliente.sh (la CA es la del cliente: ca.crt de su Secret ingesta-ca en cert-manager)."
+{{- end }}
+{{- end }}
     - alert: IngestaCertificadoNoListo
       expr: certmanager_certificate_ready_status{namespace="{{ .Release.Namespace }}", condition!="True"} == 1
       for: 15m

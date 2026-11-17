@@ -1,0 +1,65 @@
+{{- /*
+Protección de los Secrets de CA de los clientes en modo caSecret (ingesta.casClientes.proteger). Si uno falta o su
+ca.crt no vale, la ClientTrafficPolicy de ese cliente queda sin aplicar y Envoy deja de EXIGIR certificado en su
+listener. Una ValidatingAdmissionPolicy (sin webhook: la evalúa el API server) sobre los Secrets con la etiqueta
+ingesta.cliente de los namespaces de las CAs:
+  - borrarlo: solo con la anotación ingesta.borrable=true (la pone baja-cliente.sh --borrar-secret)
+  - crearlo o cambiarlo: ca.crt tiene que llevar al menos un certificado PEM
+  - cambiarlo: no se le puede quitar ni cambiar la etiqueta ingesta.cliente (sería sacarlo de la protección)
+Si se borra el namespace entero, se queda en Terminating hasta que se marquen sus Secrets.
+*/ -}}
+{{- if include "ms.globalFlag" (dict "root" $ "path" "monitoring.ingesta") }}
+{{- if .Values.ingesta.casClientes.proteger }}
+{{- $nsCas := list }}
+{{- range (include "ms.ingesta.clientes" $ | fromJsonArray) }}
+{{- if .caSecret }}
+{{- $ref := include "ms.ingesta.caRef" (dict "c" . "root" $) | fromJson }}
+{{- if not (has $ref.namespace $nsCas) }}{{ $nsCas = append $nsCas $ref.namespace }}{{ end }}
+{{- end }}
+{{- end }}
+{{- if $nsCas }}
+{{- $nombre := printf "%s-ingesta-cas-clientes" .Release.Name }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: {{ $nombre }}}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [""]
+      apiVersions: [v1]
+      operations: [CREATE, UPDATE, DELETE]
+      resources: [secrets]
+  validations:
+  - expression: >-
+      request.operation != 'DELETE' ||
+      oldObject.metadata.?annotations[?'ingesta.borrable'].orValue('') == 'true'
+    messageExpression: >-
+      'Secret con la CA del cliente ' + oldObject.metadata.labels['ingesta.cliente'] + ' de la ingesta mTLS: sin él,
+      Envoy deja de exigir certificado en su listener. Baja: baja-cliente.sh (values, push) y luego --borrar-secret'
+    reason: Forbidden
+  - expression: >-
+      request.operation == 'DELETE' ||
+      (object.?data[?'ca.crt'].hasValue() && string(object.data['ca.crt']).contains('-----BEGIN CERTIFICATE-----'))
+    message: "La CA de un cliente de la ingesta necesita ca.crt con al menos un certificado PEM"
+    reason: Invalid
+  - expression: >-
+      request.operation != 'UPDATE' ||
+      object.metadata.?labels[?'ingesta.cliente'].orValue('') == oldObject.metadata.labels['ingesta.cliente']
+    message: "No se puede quitar ni cambiar la etiqueta ingesta.cliente de la CA de un cliente"
+    reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: {{ $nombre }}}
+spec:
+  policyName: {{ $nombre }}
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchExpressions: [{key: kubernetes.io/metadata.name, operator: In, values: {{ toJson $nsCas }}}]
+    objectSelector:
+      matchExpressions: [{key: ingesta.cliente, operator: Exists}]
+{{- end }}
+{{- end }}
+{{- end }}

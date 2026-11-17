@@ -662,6 +662,34 @@ prometheus:
       requests:
         cpu: 10m
         memory: 100Mi
+    # Estado de las ClientTrafficPolicy de Envoy Gateway (alerta IngestaPoliticaClienteNoAplicada): si una no está
+    # Accepted, su listener de la ingesta no exige certificado de cliente.
+    # ingesta_clienttrafficpolicy_condicion{name, namespace, type} = 1 si la condición es True.
+    customResourceState:
+      enabled: true
+      config:
+        kind: CustomResourceStateMetrics
+        spec:
+          resources:
+          - groupVersionKind: {group: gateway.envoyproxy.io, version: v1alpha1, kind: ClientTrafficPolicy}
+            metricNamePrefix: ingesta_clienttrafficpolicy
+            labelsFromPath:
+              name: [metadata, name]
+              namespace: [metadata, namespace]
+            metrics:
+            - name: condicion
+              help: "Condiciones de la ClientTrafficPolicy en su Gateway (1 = True)"
+              each:
+                type: Gauge
+                gauge:
+                  path: [status, ancestors, "0", conditions]
+                  labelsFromPath: {type: [type]}
+                  valueFrom: [status]
+    rbac:
+      extraRules:
+      - apiGroups: [gateway.envoyproxy.io]
+        resources: [clienttrafficpolicies]
+        verbs: [list, watch]
   prometheusOperator:
     admissionWebhooks:
       certManager:
@@ -871,6 +899,10 @@ ingesta:
   casClientes:
     namespace: ingesta-clientes
     crearNamespace: true
+    # ValidatingAdmissionPolicy (templates/ingesta/proteccion.yaml): no se pueden borrar sin la anotación
+    # ingesta.borrable=true ni dejar sin certificado. Las alertas IngestaCASecretFalta e
+    # IngestaPoliticaClienteNoAplicada avisan si aun así falta.
+    proteger: true
   # Cada cliente: nombre y su CA de una de estas formas:
   #   caSecret: true                  -> Secret ingesta-ca-<nombre> en casClientes.namespace (recomendado)
   #   caSecret: {name: x, namespace: y}

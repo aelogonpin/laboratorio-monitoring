@@ -109,6 +109,9 @@
             },
             "crearNamespace": {
               "type": "boolean"
+            },
+            "proteger": {
+              "type": "boolean"
             }
           }
         }
