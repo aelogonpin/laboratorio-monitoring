@@ -4,7 +4,8 @@ ca.crt no vale, la ClientTrafficPolicy de ese cliente queda sin aplicar y Envoy 
 listener. Una ValidatingAdmissionPolicy (sin webhook: la evalúa el API server) sobre los Secrets con la etiqueta
 ingesta.cliente de los namespaces de las CAs:
   - borrarlo: solo con la anotación ingesta.borrable=true (la pone baja-cliente.sh --borrar-secret)
-  - crearlo o cambiarlo: ca.crt tiene que llevar al menos un certificado PEM
+  - crearlo o cambiarlo: ca.crt tiene que EMPEZAR por un certificado PEM. En CEL, data llega en base64 y no hay
+    base64.decode: se compara con el base64 de "-----BEGIN CERTIFICATE-----" (27 bytes = 36 caracteres exactos)
   - cambiarlo: no se le puede quitar ni cambiar la etiqueta ingesta.cliente (sería sacarlo de la protección)
 Si se borra el namespace entero, se queda en Terminating hasta que se marquen sus Secrets.
 */ -}}
@@ -40,8 +41,8 @@ spec:
     reason: Forbidden
   - expression: >-
       request.operation == 'DELETE' ||
-      (object.?data[?'ca.crt'].hasValue() && string(base64.decode(object.data['ca.crt'])).contains('-----BEGIN CERTIFICATE-----'))
-    message: "La CA de un cliente de la ingesta necesita ca.crt con al menos un certificado PEM"
+      object.?data[?'ca.crt'].orValue('').startsWith('LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t')
+    message: "La CA de un cliente de la ingesta necesita un ca.crt que empiece por -----BEGIN CERTIFICATE-----"
     reason: Invalid
   - expression: >-
       request.operation != 'UPDATE' ||
