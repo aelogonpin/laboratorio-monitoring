@@ -1,0 +1,80 @@
+{{- /* Ingesta mTLS de clientes externos (global.monitoring.ingesta). Valores: .Values.ingesta; clientes: ingesta.clientes. */ -}}
+{{- if include "ms.globalFlag" (dict "root" $ "path" "monitoring.ingesta") }}
+{{- if .Values.ingesta.alertas.enabled }}
+{{- if .Values.ingesta.alertas.serviceMonitorCertManager.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata: {name: cert-manager, namespace: {{ .Release.Namespace }}}
+spec:
+  namespaceSelector: {matchNames: [{{ .Values.ingesta.alertas.serviceMonitorCertManager.namespace }}]}
+  selector: {matchLabels: {{ toJson .Values.ingesta.alertas.serviceMonitorCertManager.selector }}}
+  # honorLabels: si no, el namespace del certificado pasa a exported_namespace y las alertas no casan
+  endpoints: [{port: http-metrics, interval: 60s, honorLabels: true}]
+---
+{{- end }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata: {name: ingesta-mtls, namespace: {{ .Release.Namespace }}}
+spec:
+  groups:
+  - name: ingesta-mtls
+    rules:
+    - alert: IngestaCertificadoClientePorRenovar
+      expr: (certmanager_certificate_expiration_timestamp_seconds{namespace="{{ .Release.Namespace }}", name=~"cliente-.*"} - time()) < {{ mul .Values.ingesta.alertas.diasAviso 86400 }}
+      for: 1h
+      labels: {severity: warning}
+      annotations:
+        summary: "Certificado de ingesta {{`{{ $labels.name }}`}}: caduca en {{`{{ $value | humanizeDuration }}`}}"
+        description: "cert-manager lo renovará en breve. Después: scripts/exportar-cliente.sh y entregarlo al cliente (el actual vale hasta su caducidad)."
+    - alert: IngestaCertificadoClienteCaducaPronto
+      expr: (certmanager_certificate_expiration_timestamp_seconds{namespace="{{ .Release.Namespace }}", name=~"cliente-.*"} - time()) < 7 * 86400
+      labels: {severity: critical}
+      annotations:
+        summary: "Certificado de ingesta {{`{{ $labels.name }}`}} caduca en menos de 7 días: el cliente dejará de enviar datos"
+{{- if .Values.ingesta.alertas.sinDatos.enabled }}
+{{- range (include "ms.ingesta.clientes" $ | fromJsonArray) }}
+{{- $r := printf "httproute/%s/ingesta-%s/rule/.*" $.Release.Namespace .nombre }}
+    # Sin respuestas 2xx de los backends para {{ .nombre }} (métricas del Envoy). Si su certificado se rechaza, la
+    # petición ni llega a la ruta, así que también salta.
+    - alert: IngestaClienteSinDatos
+      expr: |
+        sum(increase(envoy_cluster_upstream_rq_xx{envoy_cluster_name=~"{{ $r }}", envoy_response_code_class="2"}[{{ $.Values.ingesta.alertas.sinDatos.minutos }}m])) < 1
+        or absent(envoy_cluster_upstream_rq_xx{envoy_cluster_name=~"{{ $r }}", envoy_response_code_class="2"})
+      for: 5m
+      labels: {severity: warning, cliente: {{ .nombre }}}
+      annotations:
+        summary: "{{ .nombre }} lleva {{ $.Values.ingesta.alertas.sinDatos.minutos }} min sin enviar datos por la ingesta mTLS"
+        description: "Revisar con el agente diagnostico-ingesta-mtls: certificado (cert-manager del cliente), red o agentes."
+{{- end }}
+{{- end }}
+{{- range (include "ms.ingesta.clientes" $ | fromJsonArray) }}
+{{- $m := printf "ingesta_clienttrafficpolicy_condicion{namespace=\"%s\", name=\"ingesta-%s\", type=\"Accepted\"}" $.Release.Namespace .nombre }}
+    # Sin la ClientTrafficPolicy aplicada, Envoy NO exige certificado en el listener de {{ .nombre }}.
+    # Métrica de kube-state-metrics (customResourceState, values prometheus.kube-state-metrics).
+    - alert: IngestaPoliticaClienteNoAplicada
+      expr: ({{ $m }} == 0) or absent({{ $m }})
+      for: 2m
+      labels: {severity: critical, cliente: {{ .nombre }}}
+      annotations:
+        summary: "{{ .nombre }}: su ClientTrafficPolicy no está aplicada; su listener de la ingesta NO exige certificado"
+        description: "kubectl -n {{ $.Release.Namespace }} get clienttrafficpolicy ingesta-{{ .nombre }} -o yaml (status). Lo normal: falta su Secret de CA o su ca.crt no vale."
+{{- if .caSecret }}
+{{- $ref := include "ms.ingesta.caRef" (dict "c" . "root" $) | fromJson }}
+    - alert: IngestaCASecretFalta
+      expr: absent(kube_secret_info{namespace="{{ $ref.namespace }}", secret="{{ $ref.name }}"})
+      for: 2m
+      labels: {severity: critical, cliente: {{ .nombre }}}
+      annotations:
+        summary: "Falta el Secret {{ $ref.namespace }}/{{ $ref.name }} con la CA de {{ .nombre }}: su listener NO exige certificado"
+        description: "Si el cliente sigue: volver a crearlo (GUIA-CLIENTES-INGESTA.md, 1.2 y 1.5). Si era una baja: terminarla (sección 3)."
+{{- end }}
+{{- end }}
+    - alert: IngestaCertificadoNoListo
+      expr: certmanager_certificate_ready_status{namespace="{{ .Release.Namespace }}", condition!="True"} == 1
+      for: 15m
+      labels: {severity: warning}
+      annotations:
+        summary: "cert-manager no tiene listo {{`{{ $labels.name }}`}} en {{ .Release.Namespace }}"
+{{- end }}
+
+{{- end }}

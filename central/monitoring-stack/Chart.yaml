@@ -1,0 +1,52 @@
+apiVersion: v2
+name: monitoring-stack
+description: >-
+  Stack central de monitorización (Grafana, Mimir, Loki, kube-prometheus-stack y logging-operator) con entrada mTLS
+  por cliente. Cada componente es el chart oficial de su servicio; las plantillas propias solo cubren lo que esos
+  charts no traen. Lo propio de cada entorno (dominios, almacenamiento, Kafka, clientes) va en un values aparte.
+type: application
+version: 2.0.0
+appVersion: v2.0.0
+kubeVersion: ">=1.32.0-0"
+keywords: [monitoring, grafana, mimir, loki, prometheus, mtls]
+
+# Chart.lock y charts/ no se versionan (Argo CD descarga las dependencias en cada render):
+# versiones EXACTAS, salvo logging-operator (~6).
+dependencies:
+  - name: logging-operator
+    alias: operator
+    version: ~6
+    repository: oci://ghcr.io/kube-logging/helm-charts
+    condition: global.logging.operator
+  # Loki OSS se publica en grafana-community (grafana.github.io/loki 7.x es solo Enterprise).
+  - name: loki
+    alias: loki
+    version: 18.17.1
+    repository: https://grafana-community.github.io/helm-charts
+    condition: global.logging.loki
+  # grafana y grafana-dev: misma versión (comparten las plantillas del chart).
+  - name: grafana
+    version: 14.0.1
+    repository: https://grafana-community.github.io/helm-charts
+    condition: global.monitoring.grafana
+  # Ingest storage: necesita un Kafka externo (global.kafka.bootstrap). Este chart no lo instala.
+  - name: mimir-distributed
+    alias: mimir
+    version: 6.2.1
+    repository: https://grafana.github.io/helm-charts
+    condition: global.monitoring.mimir
+  - name: kube-prometheus-stack
+    alias: prometheus
+    version: 92.10.1
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: global.monitoring.prometheus
+  - name: cortex-tenant
+    alias: tenant
+    version: 0.8.1
+    repository: https://blind-oracle.github.io/cortex-tenant/
+    condition: global.monitoring.tenant
+  - name: grafana
+    alias: grafana-dev
+    version: 14.0.1
+    repository: https://grafana-community.github.io/helm-charts
+    condition: global.monitoring.grafana-dev

@@ -1,0 +1,12 @@
+Chart.lock
+charts
+test*
+values-sample.yaml
+
+test_old/
+*secret*.yaml
+!*sealed*
+loki.yml
+*temp/
+.DS_Store
+templates_in_client/

@@ -1,0 +1,66 @@
+{{- /*
+Protección de los Secrets de CA de los clientes en modo caSecret (ingesta.casClientes.proteger). Si uno falta o su
+ca.crt no vale, la ClientTrafficPolicy de ese cliente queda sin aplicar y Envoy deja de EXIGIR certificado en su
+listener. Una ValidatingAdmissionPolicy (sin webhook: la evalúa el API server) sobre los Secrets con la etiqueta
+ingesta.cliente de los namespaces de las CAs:
+  - borrarlo: solo con la anotación ingesta.borrable=true (baja: central/GUIA-CLIENTES-INGESTA.md, sección 3)
+  - crearlo o cambiarlo: ca.crt tiene que EMPEZAR por un certificado PEM. En CEL, data llega en base64 y no hay
+    base64.decode: se compara con el base64 de "-----BEGIN CERTIFICATE-----" (27 bytes = 36 caracteres exactos)
+  - cambiarlo: no se le puede quitar ni cambiar la etiqueta ingesta.cliente (sería sacarlo de la protección)
+Si se borra el namespace entero, se queda en Terminating hasta que se marquen sus Secrets.
+*/ -}}
+{{- if include "ms.globalFlag" (dict "root" $ "path" "monitoring.ingesta") }}
+{{- if .Values.ingesta.casClientes.proteger }}
+{{- $nsCas := list }}
+{{- range (include "ms.ingesta.clientes" $ | fromJsonArray) }}
+{{- if .caSecret }}
+{{- $ref := include "ms.ingesta.caRef" (dict "c" . "root" $) | fromJson }}
+{{- if not (has $ref.namespace $nsCas) }}{{ $nsCas = append $nsCas $ref.namespace }}{{ end }}
+{{- end }}
+{{- end }}
+{{- if $nsCas }}
+{{- $nombre := printf "%s-ingesta-cas-clientes" .Release.Name }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: {{ $nombre }}}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [""]
+      apiVersions: [v1]
+      operations: [CREATE, UPDATE, DELETE]
+      resources: [secrets]
+  validations:
+  - expression: >-
+      request.operation != 'DELETE' ||
+      oldObject.metadata.?annotations[?'ingesta.borrable'].orValue('') == 'true'
+    messageExpression: >-
+      'Secret con la CA del cliente ' + oldObject.metadata.labels['ingesta.cliente'] + ' de la ingesta mTLS: sin él,
+      Envoy deja de exigir certificado en su listener. Baja: primero el values (push, sync) y luego anotar ingesta.borrable=true y borrar. Ver GUIA-CLIENTES-INGESTA.md'
+    reason: Forbidden
+  - expression: >-
+      request.operation == 'DELETE' ||
+      object.?data[?'ca.crt'].orValue('').startsWith('LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t')
+    message: "La CA de un cliente de la ingesta necesita un ca.crt que empiece por -----BEGIN CERTIFICATE-----"
+    reason: Invalid
+  - expression: >-
+      request.operation != 'UPDATE' || !oldObject.metadata.?labels[?'ingesta.cliente'].hasValue() ||
+      object.metadata.?labels[?'ingesta.cliente'].orValue('') == oldObject.metadata.labels['ingesta.cliente']
+    message: "No se puede quitar ni cambiar la etiqueta ingesta.cliente de la CA de un cliente"
+    reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: {{ $nombre }}}
+spec:
+  policyName: {{ $nombre }}
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchExpressions: [{key: kubernetes.io/metadata.name, operator: In, values: {{ toJson $nsCas }}}]
+    objectSelector:
+      matchExpressions: [{key: ingesta.cliente, operator: Exists}]
+{{- end }}
+{{- end }}
+{{- end }}

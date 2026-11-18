@@ -1,0 +1,21 @@
+monitoring-stack {{ .Chart.Version }} - release {{ .Release.Name }} en {{ .Release.Namespace }}
+{{- $g := .Values.global }}
+{{- if $g.monitoring.grafana }}
+Grafana:      {{ $g.hosts.esquema }}://{{ $g.hosts.monitoring }}/grafana
+{{- end }}
+{{- if $g.monitoring.ingesta }}
+Ingesta mTLS: https://<cliente>.{{ .Values.ingesta.dominio }} - {{ len .Values.ingesta.clientes }} cliente(s)
+{{- end }}
+{{- if or $g.monitoring.prometheus $g.monitoring.mimir $g.logging.loki }}
+Sin ruta pública (personal autorizado, con su kubeconfig):
+{{- end }}
+{{- if $g.monitoring.prometheus }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-prometheus-prometheus 9090
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-prometheus-alertmanager 9093
+{{- end }}
+{{- if $g.monitoring.mimir }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/mimir-gateway 8080:80     (Kafka: {{ $g.kafka.bootstrap }})
+{{- end }}
+{{- if $g.logging.loki }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/loki-gateway 3100:80
+{{- end }}
