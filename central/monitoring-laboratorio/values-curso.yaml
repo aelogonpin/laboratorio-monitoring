@@ -1,0 +1,11 @@
+# SOLO en la rama testing (curso): qué piezas del release monitoring están encendidas, clase a clase.
+# Va el último en valueFiles de argocd/monitoring.yaml. No lo carga logging: values-laboratorio.yaml lo comparten las
+# dos releases y unos global.monitoring ahí pisarían los de values-logging.yaml. Cuando esté todo encendido, se borra
+# y la Application queda igual que en main.
+global:
+  monitoring:
+    mimir: true
+    prometheus: true
+    tenant: true
+    grafana: false
+    ingesta: false

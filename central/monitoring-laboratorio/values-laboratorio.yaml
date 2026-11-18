@@ -1,13 +1,6 @@
 # Values del LABORATORIO (k0s-central) para el chart monitoring-stack 2.x. Se aplica encima del values del chart en
 # las Applications monitoring y logging (argocd/). Todo lo que hay aquí es propio de este entorno o de pruebas.
 global:
-  # Curso (rama testing): las piezas se encienden clase a clase. Clase 6: Mimir, Prometheus y cortex-tenant.
-  monitoring:
-    mimir: true
-    prometheus: true
-    tenant: true
-    grafana: false
-    ingesta: false
   defaultStorageClass: local-path
   storageClass: local-path
   objectStorage:
