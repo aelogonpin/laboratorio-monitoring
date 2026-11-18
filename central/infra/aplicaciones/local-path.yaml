@@ -1,0 +1,26 @@
+# StorageClass local-path por defecto (PVC de Mimir, Loki, Prometheus, Kafka, Postgres, SeaweedFS).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: local-path-provisioner
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/rancher/local-path-provisioner
+    targetRevision: v0.0.37
+    path: deploy/chart/local-path-provisioner
+    helm:
+      valuesObject:
+        storageClass: {create: true, defaultClass: true, name: local-path}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: local-path-storage
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+    - CreateNamespace=true
+    retry: {limit: 10, backoff: {duration: 20s, factor: 2, maxDuration: 5m}}

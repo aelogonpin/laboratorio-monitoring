@@ -1,0 +1,22 @@
+# Aplicación raíz del central (rama testing, la del curso): lo único que se aplica a mano
+#   kubectl apply -f central/raiz.yaml
+# Crea las Applications de central/infra/aplicaciones/ por olas (sync-wave). Cada ola espera a que la anterior
+# esté Healthy gracias a la health de Application de central/infra/argocd/values.yaml.
+# Irá creciendo clase a clase; la versión completa está en main.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: raiz-central
+  namespace: argocd
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: testing
+    path: central/infra/aplicaciones
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
