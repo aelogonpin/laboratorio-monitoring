@@ -12,6 +12,6 @@ Los Argo CD de los dos clústeres leen esta rama (`targetRevision: testing`).
 
 | Clase | Qué entra |
 |---|---|
-| 2 | Argo CD (`central/infra/argocd/`, `cliente/infra/argocd/`), `central/raiz.yaml`, local-path |
+| 2 | Argo CD 10.18.0 (v3.6.1) (`central/infra/argocd/`, `cliente/infra/argocd/`), `central/raiz.yaml`, local-path |
 
 Repo **público**: nada de credenciales reales, claves privadas ni kubeconfigs.

@@ -1,4 +1,4 @@
-# Argo CD (official chart argo/argo-cd 10.10.5 = Argo CD v3.5.5, renders Helm charts with Helm 4.2.x).
+# Argo CD (official chart argo/argo-cd 10.18.0 = Argo CD v3.6.1, renders Helm charts with Helm 4.2.x).
 # Despliega github.com/aelogonpin/laboratorio-monitoring (público, sin credenciales). Sin SSO: admin local
 # (argocd-initial-admin-secret).
 

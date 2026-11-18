@@ -1,4 +1,4 @@
-# Argo CD del cliente (chart oficial argo/argo-cd 10.10.5 = Argo CD v3.5.5). Lee cliente/ de este repo público,
+# Argo CD del cliente (chart oficial argo/argo-cd 10.18.0 = Argo CD v3.6.1). Lee cliente/ de este repo público,
 # sin credenciales. Sin ruta: el cliente no expone nada; se entra con
 #   kubectl -n argocd port-forward svc/argocd-server 8080:80
 # Sin SSO: admin local (argocd-initial-admin-secret).
