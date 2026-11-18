@@ -1,7 +1,7 @@
 # Aplicación raíz del central (rama testing, la del curso): lo único que se aplica a mano
 #   kubectl apply -f central/raiz.yaml
-# Crea las Applications de central/infra/aplicaciones/ por olas (sync-wave). Cada ola espera a que la anterior
-# esté Healthy gracias a la health de Application de central/infra/argocd/values.yaml.
+# Crea las Applications de central/infra/aplicaciones/. Argo CD va instalado a mano, estándar (install.yaml v3.6.1),
+# y no se gestiona desde el repo.
 # Irá creciendo clase a clase; la versión completa está en main.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
