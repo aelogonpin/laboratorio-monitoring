@@ -7,5 +7,5 @@ global:
     mimir: true
     prometheus: true
     tenant: true
-    grafana: false
+    grafana: true
     ingesta: false
