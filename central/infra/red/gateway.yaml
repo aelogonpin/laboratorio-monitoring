@@ -47,3 +47,18 @@ spec:
     port: 80
     allowedRoutes:
       namespaces: {from: All}
+---
+# Métricas del Envoy (por ruta/backend): IngestaClienteSinDatos usa envoy_cluster_upstream_rq_xx
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: envoy-proxy
+  namespace: envoy-gateway-system
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: proxy
+      app.kubernetes.io/managed-by: envoy-gateway
+  podMetricsEndpoints:
+  - port: metrics
+    path: /stats/prometheus
