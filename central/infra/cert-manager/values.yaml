@@ -1,0 +1,17 @@
+# cert-manager (official chart jetstack/cert-manager v1.21.2).
+# PKI de la ingesta mTLS y certificado del webhook de admisión de kube-prometheus-stack
+# (prometheus.prometheusOperator.admissionWebhooks.certManager), en vez de los Jobs hook de Helm.
+crds:
+  enabled: true
+  keep: true
+resources:
+  requests: {cpu: 10m, memory: 64Mi}
+  limits: {memory: 256Mi}
+webhook:
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+cainjector:
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+    limits: {memory: 256Mi}

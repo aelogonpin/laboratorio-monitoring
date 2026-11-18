@@ -1,6 +1,6 @@
 # Aplicación raíz del central (rama testing, la del curso): lo único que se aplica a mano
 #   kubectl apply -f central/raiz.yaml
-# Crea las Applications de central/infra/aplicaciones/. Argo CD va instalado a mano, estándar (install.yaml v3.6.1),
+# Crea las Applications de central/infra/aplicaciones/ y central/monitoring-laboratorio/argocd/. Argo CD va instalado a mano, estándar (install.yaml v3.6.1),
 # y no se gestiona desde el repo.
 # Irá creciendo clase a clase; la versión completa está en main.
 apiVersion: argoproj.io/v1alpha1
@@ -11,10 +11,13 @@ metadata:
   finalizers: [resources-finalizer.argocd.argoproj.io]
 spec:
   project: default
-  source:
-    repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+  sources:
+  - repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
     targetRevision: testing
     path: central/infra/aplicaciones
+  - repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: testing
+    path: central/monitoring-laboratorio/argocd
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

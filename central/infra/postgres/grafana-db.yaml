@@ -1,0 +1,36 @@
+# PostgreSQL de Grafana (DB `grafana`, usuario `grafana`, ssl_mode require: CloudNativePG sirve TLS con su CA).
+# Host para Grafana: grafana-db-rw.postgres.svc.cluster.local:5432 (values-laboratorio.yaml).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: grafana-db
+  namespace: postgres
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie
+  bootstrap:
+    initdb:
+      database: grafana
+      owner: grafana
+      # Secret basic-auth de central/infra/base/secretos.yaml
+      secret:
+        name: grafana-db-credentials
+  storage:
+    size: 5Gi
+    storageClass: local-path
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+---
+# Métricas de la instancia para kube-prometheus-stack
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: grafana-db
+  namespace: postgres
+spec:
+  selector:
+    matchLabels:
+      cnpg.io/cluster: grafana-db
+  podMetricsEndpoints:
+  - port: metrics

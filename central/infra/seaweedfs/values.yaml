@@ -1,0 +1,39 @@
+# SeaweedFS (chart oficial seaweedfs/seaweedfs 4.48.0): S3 del laboratorio para Mimir y Loki.
+# Single pod (master + volume + filer + S3) with one local-path PVC. Test tenant only.
+
+master:
+  enabled: false
+  # used by the all-in-one `weed server` command: small volumes so buckets don't reserve space
+  volumeSizeLimitMB: 1024
+  defaultReplication: "000"
+volume:
+  enabled: false
+filer:
+  enabled: false
+
+allInOne:
+  enabled: true
+  updateStrategy:
+    type: Recreate
+  s3:
+    enabled: true
+    enableAuth: true
+    # Secret de central/infra/base/secretos.yaml (clave seaweedfs_s3_config)
+    existingConfigSecret: seaweedfs-s3-config
+    createBuckets:
+      - name: mimir-blocks
+      - name: mimir-alertmanager
+      - name: mimir-ruler
+      - name: loki-chunks
+      - name: loki-ruler
+      - name: loki-admin
+  data:
+    type: persistentVolumeClaim
+    size: 100Gi
+    storageClass: local-path
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 2Gi
