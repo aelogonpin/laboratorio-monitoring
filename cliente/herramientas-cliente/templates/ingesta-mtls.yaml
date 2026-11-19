@@ -1,0 +1,75 @@
+{{- /*
+Ingesta mTLS, lado cliente (se activa con ingesta.enabled). El cliente NO crea certificados: el central crea la CA
+y el certificado de este cliente y los deja en Vault (ingesta/<clave>/<global.appName>). Aquí solo se traen, en cada
+namespace que envía (Prometheus, Fluentd):
+  - Secret ingesta-mtls        tls.crt + tls.key del cliente
+  - Secret ingesta-ca-servidor ca.crt de la CA del certificado de servidor del central (si no es de una CA pública)
+Origen (ingesta.origen):
+  vault  -> ExternalSecret de External Secrets (apps.external-secrets) desde un ClusterSecretStore: el que crea este
+            chart con el AppRole del cliente (ingesta.vault.almacen.crear) o uno que ya exista (almacen.nombre)
+  manual -> no se crea nada: los Secrets se crean a mano (laboratorio sin Vault, ver GUIA-CLIENTES-INGESTA.md)
+Cuando el central renueva el certificado, el ExternalSecret lo trae en su siguiente vuelta (refreshInterval);
+Prometheus lo lee solo y Reloader reinicia Fluentd.
+*/ -}}
+{{- with .Values.ingesta }}
+{{- if .enabled }}
+{{- $n := required "global.appName (= CLUSTER_NAME del cliente)" $.Values.global.appName }}
+{{- if eq .origen "vault" }}
+{{- $v := .vault }}
+{{- if $v.almacen.crear }}
+# Entrada en Vault con el AppRole de este cliente: su política solo le deja LEER su certificado y la CA de servidor
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata: {name: {{ $v.almacen.nombre }}}
+spec:
+  provider:
+    vault:
+      server: {{ required "ingesta.vault.server (URL del Vault)" $v.server }}
+      path: {{ $v.ruta }}
+      version: v2
+      auth:
+        appRole:
+          path: {{ $v.appRole.path }}
+          roleId: {{ required "ingesta.vault.appRole.roleId" $v.appRole.roleId }}
+          secretRef: {{ toJson $v.appRole.secretRef }}
+{{- end }}
+{{- range $ns := .namespaces }}
+---
+# Certificado y clave de {{ $n }} (los crea y renueva el central)
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata: {name: {{ $.Values.ingesta.secretName }}, namespace: {{ $ns }}}
+spec:
+  refreshInterval: {{ $v.refreshInterval }}
+  secretStoreRef: {name: {{ $v.almacen.nombre }}, kind: ClusterSecretStore}
+  target:
+    name: {{ $.Values.ingesta.secretName }}
+    creationPolicy: Owner
+    # Si la entrada de Vault desaparece, el Secret se queda (el certificado sigue valiendo hasta que caduque)
+    deletionPolicy: Retain
+    template: {type: kubernetes.io/tls}
+  data:
+  - {secretKey: tls.crt, remoteRef: {key: {{ printf "%s/%s" $v.clave $n }}, property: tls.crt}}
+  - {secretKey: tls.key, remoteRef: {key: {{ printf "%s/%s" $v.clave $n }}, property: tls.key}}
+{{- if $v.claveServidor }}
+---
+# CA del certificado de servidor del central (solo la parte pública)
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata: {name: ingesta-ca-servidor, namespace: {{ $ns }}}
+spec:
+  refreshInterval: {{ $v.refreshInterval }}
+  secretStoreRef: {name: {{ $v.almacen.nombre }}, kind: ClusterSecretStore}
+  target:
+    name: ingesta-ca-servidor
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+  - {secretKey: ca.crt, remoteRef: {key: {{ $v.claveServidor }}, property: ca.crt}}
+{{- end }}
+{{- end }}
+{{- else if ne .origen "manual" }}
+{{- fail "ingesta.origen: vault o manual" }}
+{{- end }}
+{{- end }}
+{{- end }}

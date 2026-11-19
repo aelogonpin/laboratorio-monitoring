@@ -1,0 +1,79 @@
+# Base de las herramientas del cliente. Cada bloque se activa con enabled.
+# Versiones EXACTAS: un cambio de versión es un commit aquí y una versión nueva de este chart.
+global:
+  # -- **Requerido por cliente**: su nombre (= CLUSTER_NAME de monitoring-secrets). Único sitio donde se escribe:
+  # es el host <nombre>.ingest.<dominio>, el CN del certificado y el tenant en el central. Lo usan los
+  # certificados de la ingesta y las apps cuyo valuesObject trae `ingesta:` (se les rellena ingesta.nombre).
+  appName: ""
+  argocdNamespace: argocd
+  charts-version:
+    cert-manager: &cert-manager-version v1.21.2
+    reloader: &reloader-version 2.2.18
+    external-secrets: &external-secrets-version 2.15.0
+
+apps:
+  ################
+  # Cert Manager #
+  ################
+  # Certificados de las webs y el del webhook de admisión de kube-prometheus-stack (la ingesta ya no lo usa).
+  cert-manager:
+    enabled: true
+    source:
+      chart: cert-manager
+      repoURL: https://charts.jetstack.io
+      targetRevision: *cert-manager-version
+      helm:
+        valuesObject:
+          crds: {enabled: true}
+          fullnameOverride: cert-manager
+          extraEnv: [{name: TZ, value: Europe/Madrid}]
+          prometheus:
+            servicemonitor: {enabled: true}
+    destination: {namespace: cert-manager}
+    syncPolicy:
+      managedNamespaceMetadata: {labels: {monitoring: "true"}}
+      syncOptions: [CreateNamespace=true, ServerSideApply=true]
+      automated: {prune: true, selfHeal: true}
+
+  ##############
+  ## Reloader ##
+  ##############
+  # Reinicia Fluentd cuando cambia el certificado de la ingesta (Fluentd solo lo lee al arrancar).
+  reloader:
+    enabled: true
+    source:
+      chart: reloader
+      repoURL: https://stakater.github.io/stakater-charts
+      targetRevision: *reloader-version
+      helm:
+        valuesObject:
+          reloader:
+            reloadStrategy: annotations
+            podMonitor: {enabled: true}
+    destination: {namespace: reloader}
+    syncPolicy:
+      managedNamespaceMetadata: {labels: {monitoring: "true"}}
+      syncOptions: [CreateNamespace=true]
+      automated: {prune: true, selfHeal: true}
+  ######################
+  ## External Secrets ##
+  ######################
+  # Trae de Vault el certificado de la ingesta mTLS (ExternalSecret de templates/ingesta-mtls.yaml).
+  external-secrets:
+    enabled: true
+    source:
+      chart: external-secrets
+      repoURL: https://charts.external-secrets.io
+      targetRevision: *external-secrets-version
+      helm:
+        valuesObject:
+          installCRDs: true
+          serviceMonitor: {enabled: true}
+          resources: {requests: {cpu: 10m, memory: 64Mi}, limits: {memory: 256Mi}}
+          webhook: {resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}}
+          certController: {resources: {requests: {cpu: 10m, memory: 64Mi}, limits: {memory: 256Mi}}}
+    destination: {namespace: external-secrets}
+    syncPolicy:
+      managedNamespaceMetadata: {labels: {monitoring: "true"}}
+      syncOptions: [CreateNamespace=true, ServerSideApply=true]
+      automated: {prune: true, selfHeal: true}

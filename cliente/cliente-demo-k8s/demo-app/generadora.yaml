@@ -1,0 +1,14 @@
+# Genera una línea de log cada 5 s.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: generadora, namespace: demo-app}
+spec:
+  selector: {matchLabels: {app: generadora}}
+  template:
+    metadata: {labels: {app: generadora}}
+    spec:
+      containers:
+        - name: log
+          image: busybox:1.37
+          command: ["sh", "-c", "i=0; while true; do i=$((i+1)); echo \"level=info cliente=cliente-demo msg=\\\"pedido procesado\\\" n=$i\"; sleep 5; done"]
+          resources: {requests: {cpu: 5m, memory: 8Mi}}
