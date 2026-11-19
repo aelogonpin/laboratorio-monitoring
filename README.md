@@ -17,6 +17,18 @@ printf 'fs.inotify.max_user_instances = 1024\nfs.inotify.max_user_watches = 1048
 sudo sysctl --system
 ```
 
+**Argo CD** (instalación estándar, fuera del repo) y su único ajuste, un timeout de sync de 15 min: sin él (por
+defecto 0 = nunca), una operación que espera a un recurso que no llega a estar sano se queda colgada para siempre y el
+`retry` no entra. Pasa en el primer arranque de un cliente: el certificado del webhook de kube-prometheus-stack falla
+porque el webhook de cert-manager aún no está listo, y la operación espera para siempre al operador, que lo necesita.
+
+```bash
+kubectl create ns argocd
+kubectl apply -n argocd --server-side -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.6.1/manifests/install.yaml
+kubectl -n argocd patch cm argocd-cmd-params-cm --type merge -p '{"data":{"controller.sync.timeout.seconds":"900"}}'
+kubectl -n argocd rollout restart statefulset argocd-application-controller
+```
+
 | Clase | Qué entra |
 |---|---|
 | 2 | `central/raiz.yaml` y local-path. Argo CD v3.6.1 se instala a mano (install.yaml estándar), fuera del repo |
