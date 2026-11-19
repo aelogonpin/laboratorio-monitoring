@@ -8,4 +8,4 @@ global:
     prometheus: true
     tenant: true
     grafana: true
-    ingesta: false
+    ingesta: true

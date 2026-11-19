@@ -19,13 +19,15 @@ spec:
   groups:
   - name: ingesta-mtls
     rules:
-    - alert: IngestaCertificadoClientePorRenovar
+    # cert-manager renueva cada certificado de cliente a falta de renovarAntes (30 días por defecto). Si le quedan menos
+    # de diasAviso, la renovación ha fallado.
+    - alert: IngestaCertificadoClienteSinRenovar
       expr: (certmanager_certificate_expiration_timestamp_seconds{namespace="{{ .Release.Namespace }}", name=~"cliente-.*"} - time()) < {{ mul .Values.ingesta.alertas.diasAviso 86400 }}
       for: 1h
       labels: {severity: warning}
       annotations:
-        summary: "Certificado de ingesta {{`{{ $labels.name }}`}}: caduca en {{`{{ $value | humanizeDuration }}`}}"
-        description: "cert-manager lo renovará en breve. Después: scripts/exportar-cliente.sh y entregarlo al cliente (el actual vale hasta su caducidad)."
+        summary: "Certificado de ingesta {{`{{ $labels.name }}`}}: caduca en {{`{{ $value | humanizeDuration }}`}} y cert-manager no lo ha renovado"
+        description: "kubectl -n {{ .Release.Namespace }} describe certificate {{`{{ $labels.name }}`}} (y los CertificateRequest)."
     - alert: IngestaCertificadoClienteCaducaPronto
       expr: (certmanager_certificate_expiration_timestamp_seconds{namespace="{{ .Release.Namespace }}", name=~"cliente-.*"} - time()) < 7 * 86400
       labels: {severity: critical}
@@ -58,15 +60,23 @@ spec:
       annotations:
         summary: "{{ .nombre }}: su ClientTrafficPolicy no está aplicada; su listener de la ingesta NO exige certificado"
         description: "kubectl -n {{ $.Release.Namespace }} get clienttrafficpolicy ingesta-{{ .nombre }} -o yaml (status). Lo normal: falta su Secret de CA o su ca.crt no vale."
-{{- if .caSecret }}
-{{- $ref := include "ms.ingesta.caRef" (dict "c" . "root" $) | fromJson }}
-    - alert: IngestaCASecretFalta
-      expr: absent(kube_secret_info{namespace="{{ $ref.namespace }}", secret="{{ $ref.name }}"})
+    - alert: IngestaCAClienteFalta
+      expr: absent(kube_secret_info{namespace="{{ $.Release.Namespace }}", secret="ca-{{ .nombre }}"})
       for: 2m
       labels: {severity: critical, cliente: {{ .nombre }}}
       annotations:
-        summary: "Falta el Secret {{ $ref.namespace }}/{{ $ref.name }} con la CA de {{ .nombre }}: su listener NO exige certificado"
-        description: "Si el cliente sigue: volver a crearlo (GUIA-CLIENTES-INGESTA.md, 1.2 y 1.5). Si era una baja: terminarla (sección 3)."
+        summary: "Falta el Secret {{ $.Release.Namespace }}/ca-{{ .nombre }} con la CA de {{ .nombre }}: su listener NO exige certificado"
+        description: "cert-manager creará otra CA: el certificado del cliente deja de valer hasta que reciba uno nuevo (se renueva y entrega solo en minutos; GUIA-CLIENTES-INGESTA.md)."
+{{- if $.Values.ingesta.entrega.pushSecret.enabled }}
+{{- $m := printf "ingesta_pushsecret_condicion{namespace=\"%s\", name=\"ingesta-%s\", type=\"Ready\"}" $.Release.Namespace .nombre }}
+    # El certificado de {{ .nombre }} no llega a Vault: cuando cert-manager lo renueve, el cliente no lo recibirá.
+    - alert: IngestaEntregaClienteFalla
+      expr: ({{ $m }} == 0) or absent({{ $m }})
+      for: 15m
+      labels: {severity: warning, cliente: {{ .nombre }}}
+      annotations:
+        summary: "{{ .nombre }}: el PushSecret de su certificado no consigue subirlo al almacén (Vault)"
+        description: "kubectl -n {{ $.Release.Namespace }} describe pushsecret ingesta-{{ .nombre }}. Revisar el ClusterSecretStore y la política de Vault."
 {{- end }}
 {{- end }}
     - alert: IngestaCertificadoNoListo

@@ -76,11 +76,15 @@ loki:
       storageClass: local-path
 ingesta:
   dominio: ingest.10.99.90.58.nip.io
-  # CA de servidor propia del laboratorio (los clientes la fijan como servidorCA)
+  # CA de servidor propia del laboratorio: se sube a Vault (ingesta/servidor) y los clientes la bajan
   servidorTLS:
     crear: true
-  # Clientes de la ingesta mTLS. Aquí solo el nombre: su CA pública va en el Secret ingesta-ca-<nombre> del
-  # namespace ingesta-clientes (ingesta.casClientes), que se crea a mano antes, no Argo CD.
-  # Alta, cambio de CA y baja: central/GUIA-CLIENTES-INGESTA.md
-  # Sin clientes todavía: llegan en la clase 12 (alta con la guía)
-  clientes: []
+  # El central crea la CA y el certificado de cada cliente y los sube a Vault (Vault del laboratorio: infra/vault/);
+  # cada cliente los baja con su ExternalSecret.
+  entrega:
+    pushSecret:
+      enabled: true
+  # Clientes de la ingesta mTLS. Alta, entrega y baja: central/GUIA-CLIENTES-INGESTA.md
+  clientes:
+    # Clase 10: cliente de prueba (sin ipPermitidas) para probar el central antes de montar el cliente
+    - nombre: prueba
