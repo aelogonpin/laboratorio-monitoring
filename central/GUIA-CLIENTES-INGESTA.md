@@ -187,9 +187,11 @@ Y en cada renovación (sección 2) hay que repetirlo **antes de que caduque el a
 4. Prometheus lo relee solo; Reloader reinicia Fluentd (anotación secret.reloader.stakater.com/reload)
 ```
 
-- **El PushSecret no vigila su Secret**: lo nuevo sube en la siguiente vuelta, no al instante. Con 1 h + 1 h de
-  `refreshInterval` y 30 días de margen da igual; para no esperar, `force-sync` (como en 1.5) en el PushSecret
-  `ingesta-<cliente>` del central y en los ExternalSecret del cliente.
+- **Cuánto tarda**: en el laboratorio (19/11/2026, `refreshInterval` de 5 min) la cadena entera tardó **46 s**:
+  renovado 21:55:42, en Vault 21:55:57, en el cliente 21:56:13, Fluentd reiniciado 21:56:28, sin ningún envío fallido.
+  El tope es la suma de los dos `refreshInterval` (1 h + 1 h por defecto); con 30 días de margen da igual. Ojo: si el
+  Secret se **borra** y se vuelve a crear (sección 2, forzar), el PushSecret no lo subió hasta su siguiente vuelta;
+  para no esperar, `force-sync` (como en 1.5) en el PushSecret `ingesta-<cliente>` y en los ExternalSecret del cliente.
 - **No hay corte**: el certificado viejo sigue valiendo hasta que caduca, y Envoy acepta los dos (misma CA).
 - **Si se rompe un eslabón** (Vault caído, AppRole del cliente sin permiso, ESO roto), el cliente sigue con el viejo:
   avisan `IngestaEntregaClienteFalla` (paso 2) y, si de verdad caduca, `IngestaClienteSinDatos`. El paso 3 se ve en

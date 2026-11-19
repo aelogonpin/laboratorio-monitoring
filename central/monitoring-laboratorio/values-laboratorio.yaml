@@ -84,8 +84,8 @@ ingesta:
   entrega:
     pushSecret:
       enabled: true
-      # Laboratorio: 5 min para ver las renovaciones enseguida (el PushSecret NO vigila el Secret: sube lo nuevo en la
-      # siguiente vuelta; a mano, anotar el PushSecret con force-sync=<fecha>)
+      # Laboratorio: 5 min como tope para ver las renovaciones (una renovación normal llega en segundos; un Secret
+      # borrado y recreado, en la siguiente vuelta o anotando el PushSecret con force-sync=<fecha>)
       refreshInterval: 5m
   # Clientes de la ingesta mTLS. Alta, entrega y baja: central/GUIA-CLIENTES-INGESTA.md
   clientes:

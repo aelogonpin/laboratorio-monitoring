@@ -30,5 +30,6 @@ sudo sysctl --system
 | 10 | Ingesta mTLS en el central, **modelo B**: el central crea la CA y el certificado de cada cliente (90 días, renueva a 30) y los sube a Vault con un PushSecret; protección (VAP) sobre `ca-<cliente>`; alertas nuevas (CA falta, entrega falla, renovación falla). Fuera los modos `cas` y `caSecret`. Cliente de prueba `prueba` |
 | 10b | Logs del propio central: Application `logging-operator` (Fluent Bit → Fluentd → loki-gateway, tenant `k0s-central`, todo en `logging`). Namespaces `external-secrets` y `vault` con `monitoring=true` para que Prometheus lea ESO |
 | 11 | Cliente: raíz `cliente/cliente-demo-k8s/raiz.yaml`; `herramientas-cliente` 0.6.0 sin CA propia: ESO 2.15.0 + ClusterSecretStore con el AppRole de cliente-demo + ExternalSecret `ingesta-mtls` e `ingesta-ca-servidor` en monitoring y logging (`ingesta.origen: vault` o `manual`). Prometheus y Fluentd igual que antes, Reloader reinicia Fluentd |
+| 12 | Alta de `cliente-demo` (solo el values del central), guía `central/GUIA-CLIENTES-INGESTA.md` y `doc/ingesta-mtls.md` reescritas, alertas de renovación relativas a cada certificado. Renovación probada de punta a punta: 46 s, sin envíos fallidos |
 
 Repo **público**: nada de credenciales reales, claves privadas ni kubeconfigs.
