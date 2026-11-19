@@ -14,7 +14,7 @@ global:
   parameters:
     clusterName: k0s-central
     # el tenant de cada cliente (central/GUIA-CLIENTES-INGESTA.md)
-    grafanaClusters: k0s-central
+    grafanaClusters: k0s-central|cliente-demo
 grafana:
   route:
     main:
@@ -88,4 +88,9 @@ ingesta:
       # siguiente vuelta; a mano, anotar el PushSecret con force-sync=<fecha>)
       refreshInterval: 5m
   # Clientes de la ingesta mTLS. Alta, entrega y baja: central/GUIA-CLIENTES-INGESTA.md
-  clientes: []
+  clientes:
+    # Alta 2026-11-19. k0s-cliente (10.99.90.218). Laboratorio: certificado de 1 h renovado a falta de 40 min (cada
+    # ~20 min) para ver la cadena de renovación entera; en producción, los 90 días del chart.
+    - nombre: cliente-demo
+      ipPermitidas: [10.99.90.218/32]
+      certificado: {duracion: 1h, renovarAntes: 40m}
