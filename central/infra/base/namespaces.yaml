@@ -40,3 +40,18 @@ metadata:
   name: envoy-gateway-system
   labels:
     monitoring: "true"
+---
+# Con monitoring=true para que el Prometheus del central lea sus ServiceMonitor (ESO) y sus métricas
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-secrets
+  labels:
+    monitoring: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vault
+  labels:
+    monitoring: "true"

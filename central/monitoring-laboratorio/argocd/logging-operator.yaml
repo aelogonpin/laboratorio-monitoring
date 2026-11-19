@@ -1,0 +1,37 @@
+# Logs del PROPIO central: logging-operator (Fluent Bit en cada nodo -> Fluentd -> loki-gateway, por dentro, tenant
+# k0s-central). Mismo chart monitoring-stack, release logging-operator (values-logging-operator.yaml).
+# En el laboratorio todo en el namespace logging (controlNamespace): ahí ya están monitoring-secrets y la NetworkPolicy
+# que cierra logging deja pasar a los pods del propio namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: logging-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: testing
+    path: central/monitoring-stack
+    helm:
+      releaseName: logging-operator
+      valueFiles:
+      - values-logging-operator.yaml
+      - ../monitoring-laboratorio/values-laboratorio.yaml
+      valuesObject:
+        operator:
+          logging:
+            controlNamespace: logging
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: logging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - ServerSideApply=true
+    - CreateNamespace=true
+    retry: {limit: 10, backoff: {duration: 20s, factor: 2, maxDuration: 5m}}
