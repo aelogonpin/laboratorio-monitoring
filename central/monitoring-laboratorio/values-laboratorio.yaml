@@ -84,7 +84,8 @@ ingesta:
   entrega:
     pushSecret:
       enabled: true
+      # Laboratorio: 5 min para ver las renovaciones enseguida (el PushSecret NO vigila el Secret: sube lo nuevo en la
+      # siguiente vuelta; a mano, anotar el PushSecret con force-sync=<fecha>)
+      refreshInterval: 5m
   # Clientes de la ingesta mTLS. Alta, entrega y baja: central/GUIA-CLIENTES-INGESTA.md
-  clientes:
-    # Clase 10: cliente de prueba (sin ipPermitidas) para probar el central antes de montar el cliente
-    - nombre: prueba
+  clientes: []
