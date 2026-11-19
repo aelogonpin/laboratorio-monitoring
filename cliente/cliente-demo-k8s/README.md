@@ -7,20 +7,21 @@ ingesta mTLS).
 | Fichero | Qué es |
 |---|---|
 | `raiz.yaml` | Aplicación de aplicaciones. Se aplica una vez, a mano. |
-| `aplicaciones-cliente-demo/herramientas-cliente.yaml` | Herramientas del clúster (cert-manager, Reloader, Prometheus, logging-operator e ingesta mTLS) desde el chart `herramientas-cliente`. Solo se declara `global.appName`. |
+| `aplicaciones-cliente-demo/herramientas-cliente.yaml` | Herramientas del clúster (cert-manager, Reloader, External Secrets, Prometheus, logging-operator e ingesta mTLS) desde el chart `herramientas-cliente`. Se declaran `global.appName` y la entrada a Vault (`ingesta.vault`). |
 | `aplicaciones-cliente-demo/demo-app.yaml` | La aplicación del cliente. |
 
-El Secret `monitoring-secrets` (`clusterName`, `distro`) está en `secretos/` y lo aplica la app `secretos`.
+Los Secrets `monitoring-secrets` (`clusterName`, `distro`) y `external-secrets/vault-approle` (secret_id del AppRole
+de cliente-demo en el Vault del laboratorio) están en `secretos/` y los aplica la app `secretos`.
 **No lleva contraseñas de Loki ni Mimir.**
 
 ## Alta en el central
 
-Al primer arranque, cert-manager crea la CA del cliente. Su parte pública se manda al central, que la da de alta
-(`central/GUIA-CLIENTES-INGESTA.md`, sección 1) y comprueba la huella por otro canal:
+El cliente no genera nada: el alta se hace entera en el central (`central/GUIA-CLIENTES-INGESTA.md`). El central crea
+su CA y su certificado y los sube a Vault (`ingesta/clientes/cliente-demo`); aquí los ExternalSecret los traen a los
+Secrets `ingesta-mtls` e `ingesta-ca-servidor` de `monitoring` y `logging`.
+
+Hasta el alta, los ExternalSecret dan error (no hay nada en Vault) y Prometheus y Fluentd esperan al Secret.
 
 ```bash
-kubectl -n cert-manager get secret ingesta-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+kubectl get externalsecret -A          # tras el alta: SecretSynced
 ```
-
-Hasta el alta, Prometheus y Fluentd reintentan (rechazo TLS). Copia de seguridad del Secret `ingesta-ca`: si se
-pierde, cert-manager crea otra CA y hay que repetir el alta.
