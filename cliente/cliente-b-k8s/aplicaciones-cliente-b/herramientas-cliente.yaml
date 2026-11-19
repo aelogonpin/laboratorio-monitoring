@@ -1,0 +1,42 @@
+# Herramientas del clúster: el chart herramientas-cliente, leído directamente de este repo (sin registro de charts).
+# Fijar una versión = poner un tag o un commit en targetRevision.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: herramientas-cliente
+  namespace: argocd
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: testing
+    path: cliente/herramientas-cliente
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-monitoring.yaml
+        - values-logging.yaml
+        # Sin StorageClass propia: local-path (en otros clientes, NFS o Longhorn)
+        - values-almacenamiento.yaml
+      valuesObject:
+        # Lo propio de este cliente: su nombre, en un solo sitio (= CLUSTER_NAME de monitoring-secrets, de donde
+        # lo toma Fluentd). Es el host de la ingesta, su ruta en Vault, el tenant y la URL de Prometheus.
+        global:
+          appName: cliente-b
+        ingesta:
+          vault:
+            # Vault del laboratorio (en el central). AppRole de cliente-b: solo lee su certificado y la CA de servidor
+            server: http://vault.10.99.90.58.nip.io
+            appRole: {roleId: aedb82ec-6ad2-4d8b-94c6-f4e7fe00ad29}
+            # Laboratorio: 5 min para ver llegar las renovaciones (el chart trae 1h)
+            refreshInterval: 5m
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    # El ClusterSecretStore y los ExternalSecret de la ingesta usan CRDs de External Secrets, que instala una de
+    # las Applications hijas: hasta que existan, sin dry-run y reintentando.
+    syncOptions: [SkipDryRunOnMissingResource=true]
+    retry: {limit: 10, backoff: {duration: 20s, factor: 2, maxDuration: 5m}}

@@ -11,7 +11,7 @@ metadata:
   name: vault-config
   namespace: vault
 data:
-  clientes: "cliente-demo"
+  clientes: "cliente-demo cliente-b"
   configurar.sh: |
     set -eu
     export VAULT_ADDR=http://vault.vault.svc:8200

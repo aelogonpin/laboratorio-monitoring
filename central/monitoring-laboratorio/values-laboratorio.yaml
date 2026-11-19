@@ -14,7 +14,7 @@ global:
   parameters:
     clusterName: k0s-central
     # el tenant de cada cliente (central/GUIA-CLIENTES-INGESTA.md)
-    grafanaClusters: k0s-central|cliente-demo
+    grafanaClusters: k0s-central|cliente-demo|cliente-b
 grafana:
   route:
     main:
@@ -94,3 +94,6 @@ ingesta:
     - nombre: cliente-demo
       ipPermitidas: [10.99.90.218/32]
       certificado: {duracion: 1h, renovarAntes: 40m}
+    # Alta 2026-11-19. k0s-cliente-b (10.99.90.254). Certificado con la duración del chart (90 días, renueva a 30).
+    - nombre: cliente-b
+      ipPermitidas: [10.99.90.254/32]

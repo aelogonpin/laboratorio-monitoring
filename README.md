@@ -1,6 +1,6 @@
 # laboratorio-monitoring · rama `testing`
 
-Rama del curso: el mismo stack que `main`, montado desde cero en `k0s-central` (10.99.90.58) y `k0s-cliente`
+Rama del curso: el mismo stack que `main`, montado desde cero en `k0s-central` (10.99.90.58), `k0s-cliente-b` (10.99.90.254) y `k0s-cliente`
 (10.99.90.218) y añadido pieza a pieza, una clase cada vez. **`main` es la solución**: cuando termina una clase,
 se compara con ella:
 
@@ -31,5 +31,6 @@ sudo sysctl --system
 | 10b | Logs del propio central: Application `logging-operator` (Fluent Bit → Fluentd → loki-gateway, tenant `k0s-central`, todo en `logging`). Namespaces `external-secrets` y `vault` con `monitoring=true` para que Prometheus lea ESO |
 | 11 | Cliente: raíz `cliente/cliente-demo-k8s/raiz.yaml`; `herramientas-cliente` 0.6.0 sin CA propia: ESO 2.15.0 + ClusterSecretStore con el AppRole de cliente-demo + ExternalSecret `ingesta-mtls` e `ingesta-ca-servidor` en monitoring y logging (`ingesta.origen: vault` o `manual`). Prometheus y Fluentd igual que antes, Reloader reinicia Fluentd |
 | 12 | Alta de `cliente-demo` (solo el values del central), guía `central/GUIA-CLIENTES-INGESTA.md` y `doc/ingesta-mtls.md` reescritas, alertas de renovación relativas a cada certificado. Renovación probada de punta a punta: 46 s, sin envíos fallidos |
+| 12b | Multitenancy: segundo cliente `cliente-b` en su propio clúster `k0s-cliente-b` (`cliente/cliente-b-k8s/`), su AppRole en Vault y su entrada en `ingesta.clientes` y `grafanaClusters` |
 
 Repo **público**: nada de credenciales reales, claves privadas ni kubeconfigs.
