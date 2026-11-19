@@ -922,7 +922,6 @@ ingesta:
     internosPermitidos: []
   alertas:
     enabled: true
-    diasAviso: 25         # renovarAntes son 30: si quedan menos de 25, la renovación ha fallado
     sinDatos: {enabled: true, minutos: 30}
     serviceMonitorCertManager:
       enabled: true

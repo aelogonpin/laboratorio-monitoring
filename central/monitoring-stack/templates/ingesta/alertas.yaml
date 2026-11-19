@@ -19,20 +19,24 @@ spec:
   groups:
   - name: ingesta-mtls
     rules:
-    # cert-manager renueva cada certificado de cliente a falta de renovarAntes (30 días por defecto). Si le quedan menos
-    # de diasAviso, la renovación ha fallado.
+    # cert-manager renueva cada certificado de cliente a falta de renovarAntes (renewal_timestamp). Relativas a cada
+    # certificado (valen igual con 90 días que con 1 h): avisan si ha pasado su hora de renovar y no lo ha hecho.
     - alert: IngestaCertificadoClienteSinRenovar
-      expr: (certmanager_certificate_expiration_timestamp_seconds{namespace="{{ .Release.Namespace }}", name=~"cliente-.*"} - time()) < {{ mul .Values.ingesta.alertas.diasAviso 86400 }}
-      for: 1h
+      expr: time() - certmanager_certificate_renewal_timestamp_seconds{namespace="{{ .Release.Namespace }}", name=~"cliente-.*"} > 900
+      for: 15m
       labels: {severity: warning}
       annotations:
-        summary: "Certificado de ingesta {{`{{ $labels.name }}`}}: caduca en {{`{{ $value | humanizeDuration }}`}} y cert-manager no lo ha renovado"
-        description: "kubectl -n {{ .Release.Namespace }} describe certificate {{`{{ $labels.name }}`}} (y los CertificateRequest)."
+        summary: "Certificado de ingesta {{`{{ $labels.name }}`}}: cert-manager no lo ha renovado a su hora"
+        description: "kubectl -n {{ .Release.Namespace }} describe certificate {{`{{ $labels.name }}`}} (y sus CertificateRequest). El cliente sigue con el actual hasta que caduque."
+    # Ha pasado la mitad del margen de renovación sin renovar: queda poco para que el cliente deje de enviar
     - alert: IngestaCertificadoClienteCaducaPronto
-      expr: (certmanager_certificate_expiration_timestamp_seconds{namespace="{{ .Release.Namespace }}", name=~"cliente-.*"} - time()) < 7 * 86400
+      expr: |
+        time() > certmanager_certificate_renewal_timestamp_seconds{namespace="{{ .Release.Namespace }}", name=~"cliente-.*"}
+          + (certmanager_certificate_expiration_timestamp_seconds{namespace="{{ .Release.Namespace }}", name=~"cliente-.*"}
+             - certmanager_certificate_renewal_timestamp_seconds{namespace="{{ .Release.Namespace }}", name=~"cliente-.*"}) / 2
       labels: {severity: critical}
       annotations:
-        summary: "Certificado de ingesta {{`{{ $labels.name }}`}} caduca en menos de 7 días: el cliente dejará de enviar datos"
+        summary: "Certificado de ingesta {{`{{ $labels.name }}`}} sin renovar y con más de la mitad del margen gastado: el cliente dejará de enviar al caducar"
 {{- if .Values.ingesta.alertas.sinDatos.enabled }}
 {{- range (include "ms.ingesta.clientes" $ | fromJsonArray) }}
 {{- $r := printf "httproute/%s/ingesta-%s/rule/.*" $.Release.Namespace .nombre }}

@@ -3,11 +3,14 @@
 Los clústeres de cliente envían logs (Loki) y métricas (Mimir) al central con un **certificado de
 cliente** en lugar de usuario y contraseña. Se activa con `global.monitoring.ingesta` (release `monitoring`).
 
+**El central es el dueño de los certificados**: crea la CA de cada cliente y su certificado, los renueva y, con
+`ingesta.entrega.pushSecret`, los sube a Vault con External Secrets; cada cliente los baja con su ExternalSecret.
+
 ## Cómo viaja una petición
 
 ```
 Cliente (Prometheus / Fluentd)                         Central
- cert-manager del cliente: su CA y su certificado
+ su certificado: lo crea el central, lo trae de Vault
  ── HTTPS + certificado ──►  Envoy :443  (Gateway ingesta, listener <cliente>, SNI <cliente>.ingest.<dominio>)
                               1. ClientTrafficPolicy ingesta-<cliente> ¿firmado por SU CA?     no -> corta en el TLS
                                  (sin SNI o con otro host: no hay listener -> corta en el TLS)
@@ -24,10 +27,12 @@ Cliente (Prometheus / Fluentd)                         Central
 
 | Fichero | Qué hace |
 |---|---|
-| `templates/ingesta/pki.yaml` | Certificados: CA y certificado de **servidor**, y en modo CA en el central, la CA y el certificado del cliente |
-| `templates/ingesta/envoy.yaml` | Gateway de la ingesta y, por cliente, su CA pública, ClientTrafficPolicy, HTTPRoute y SecurityPolicy |
+| `templates/ingesta/pki.yaml` | Certificados: CA y certificado de **servidor**, y por cliente su CA y su certificado de cliente |
+| `templates/ingesta/entrega.yaml` | PushSecret por cliente (certificado y clave a Vault) y de la CA de servidor |
+| `templates/ingesta/proteccion.yaml` | ValidatingAdmissionPolicy sobre las CAs de los clientes |
+| `templates/ingesta/envoy.yaml` | Gateway de la ingesta y, por cliente, ClientTrafficPolicy, HTTPRoute y SecurityPolicy |
 | `templates/ingesta/politica-red.yaml` | NetworkPolicy que cierra los namespaces `monitoring` y `logging` |
-| `templates/ingesta/alertas.yaml` | Alertas: certificado por caducar, cliente sin datos |
+| `templates/ingesta/alertas.yaml` | Alertas: política no aplicada, CA que falta, entrega que falla, certificado sin renovar, cliente sin datos |
 | `templates/ingesta/_helpers.tpl` | Lee y valida los clientes de `ingesta.clientes` |
 | `values.yaml` → `ingesta:` | Gateway, destinos, política de red y alertas (comunes a todos) |
 | values del entorno → `ingesta.dominio` y `ingesta.clientes` | El dominio y **un elemento por cliente**: es lo único que se toca para dar de alta o de baja |
@@ -38,14 +43,16 @@ Cliente (Prometheus / Fluentd)                         Central
 
 | Objeto (CRD) | De quién es el CRD | Para qué |
 |---|---|---|
-| `Issuer ingesta-autofirmado` | cert-manager | Firma las CAs (la de servidor de laboratorio y las de clientes en modo central) |
+| `Issuer ingesta-autofirmado` | cert-manager | Firma las CAs (la de servidor de laboratorio y la de cada cliente) |
 | `Certificate ingesta-ca-servidor` + `Issuer ingesta-ca-servidor` | cert-manager | CA del certificado de servidor. Solo laboratorio: con un certificado de una CA pública, `ingesta.servidorTLS` |
 | `Certificate ingesta-servidor` → Secret `ingesta-servidor-tls` | cert-manager | Certificado de servidor `*.ingest.<dominio>`: lo presenta Envoy |
 | `Gateway ingesta` (si hay clientes) | Gateway API | Un listener HTTPS por cliente. Se fusiona con el Gateway de la plataforma (`mergeGateways`): mismo Envoy, misma IP |
 | `BackendTrafficPolicy ingesta-limite-cuerpo` | Envoy Gateway | Tamaño máximo de cada envío (`requestBuffer`) |
 | `ReferenceGrant ingesta-desde-monitoring` (en `logging`) | Gateway API | Deja a las HTTPRoute de `monitoring` enviar a `loki-write` |
 | `NetworkPolicy ingesta-cerrar-monitoring` / `-logging` | Kubernetes | Mimir y Loki no autentican: solo entra Envoy (y lo listado en `ingesta.politicaRed`) |
-| `PrometheusRule ingesta-mtls` | Prometheus Operator | Alertas de certificados y de cliente sin datos |
+| `PrometheusRule ingesta-mtls` | Prometheus Operator | Alertas (sección de alertas de la guía) |
+| `PushSecret ingesta-ca-servidor` | External Secrets | Con `entrega.pushSecret` y CA de servidor propia: su `ca.crt` a `rutaServidor` |
+| `ValidatingAdmissionPolicy <release>-ingesta-cas-clientes` (+ Binding) | Kubernetes | Con `ingesta.proteger`: las CAs `ca-<cliente>` no se borran sin `ingesta.borrable=true` |
 | `ServiceMonitor cert-manager` | Prometheus Operator | Métricas de caducidad de cert-manager (las usan las alertas) |
 
 ### Por cliente (salen solos de su elemento en `ingesta.clientes`)
@@ -53,12 +60,12 @@ Cliente (Prometheus / Fluentd)                         Central
 | Objeto (CRD) | De quién es el CRD | Para qué |
 |---|---|---|
 | Listener `<cliente>` del `Gateway ingesta` | Gateway API | Host `<cliente>.ingest.<dominio>`, HTTPS 443, certificado de servidor |
-| `Secret ingesta-ca-<cliente>` | Kubernetes | Parte **pública** de la CA del cliente, clave `ca.crt`. Con `caSecret: true` **no lo crea el chart**: está en `ingesta.casClientes.namespace` (`ingesta-clientes`) y se crea a mano (ver la guía) o con External Secrets. Con `cas:` lo crea el chart en el namespace de la release. Varias CAs en el mismo `ca.crt` = cambio de CA sin corte |
-| `ReferenceGrant ingesta-cas-desde-<release>` + `Namespace` | Gateway API | Solo con `caSecret` en otro namespace: deja a las `ClientTrafficPolicy` leer esos Secrets. El Namespace lleva `Delete=false` |
-| `ClientTrafficPolicy ingesta-<cliente>` | Envoy Gateway | En **su** listener solo acepta certificados de **su** CA (TLS ≥ 1.2) |
+| `Certificate ca-<cliente>` → Secret `ca-<cliente>` + `Issuer ca-<cliente>` | cert-manager | Su CA (10 años, `rotationPolicy: Never`), con la etiqueta `ingesta.ca` (protegida). Su listener solo confía en ella |
+| `Certificate cliente-<cliente>` → Secret `cliente-<cliente>` | cert-manager | Su certificado de cliente (`CN=<cliente>`, RSA, 90 días, renueva a falta de 30; `clientes[].certificado`) |
+| `PushSecret ingesta-<cliente>` | External Secrets | Con `entrega.pushSecret`: sube `tls.crt` y `tls.key` a `<ruta>/<cliente>`. Al quitar el cliente, lo borra de Vault |
+| `ClientTrafficPolicy ingesta-<cliente>` | Envoy Gateway | En **su** listener solo acepta certificados de **su** CA, `ca-<cliente>` (TLS ≥ 1.2) |
 | `HTTPRoute ingesta-<cliente>` | Gateway API | Solo rutas de envío (`/loki/api/v1/push`, `/otlp/v1/logs`, `/api/v1/push`, `/otlp/v1/metrics`) y `X-Scope-OrgID` fijo |
 | `SecurityPolicy ingesta-<cliente>` | Envoy Gateway | Solo si `ipPermitidas`: un certificado robado no sirve desde otra IP |
-| `Certificate ca-<cliente>` + `Issuer` + `Certificate cliente-<cliente>` | cert-manager | Solo en modo **CA en el central** (sin `cas:` ni `caSecret`, clientes sin cert-manager): el central emite su certificado y hay que entregárselo |
 
 Por qué un listener por cliente: la validación de cliente estándar de Gateway API va por puerto, no por host. Envoy
 Gateway la permite por listener con `ClientTrafficPolicy` + `sectionName`.
@@ -74,34 +81,26 @@ ingesta:
     ipPermitidas: [203.0.113.10/32] # opcional
     senales: [logs, metricas]       # opcional, por defecto las dos
     metricasPorCortexTenant: false  # opcional: varios clústeres por certificado -> tenant <cliente>-<cluster>
-    caSecret: true                  # su CA: Secret ingesta-ca-cliente-x en ingesta.casClientes.namespace
-    # caSecret: {name: x, namespace: y}   otro Secret
-    # cas: [PEM]                          o la CA en el propio values (no recomendado)
+    certificado: {duracion: 2160h, renovarAntes: 720h}   # opcional, por defecto ingesta.certCliente
 ```
 
-> **Ojo: el Secret de la CA tiene que existir mientras exista el listener.** Si falta (o su `ca.crt` no vale), la
-> `ClientTrafficPolicy` queda `Accepted=False` y Envoy deja de **exigir certificado** en ese listener: entra
-> cualquiera con el tenant de ese cliente. Probado en el laboratorio el 17/11/2026: solo lo paró `ipPermitidas`
-> (403). Por eso el alta crea el Secret antes del push y la baja lo borra después del sync.
+> **Ojo: la CA del cliente (`ca-<cliente>`) no se puede perder.** Si falta, la `ClientTrafficPolicy` queda
+> `Accepted=False` y Envoy deja de **exigir certificado** en ese listener (probado en el laboratorio el 17/11/2026:
+> solo lo paró `ipPermitidas`), y cert-manager crea otra CA con la que el certificado del cliente ya no vale. Por eso
+> la protege una ValidatingAdmissionPolicy y avisan `IngestaCAClienteFalta` e `IngestaPoliticaClienteNoAplicada`.
 
 ## Alta y baja
 
 Paso a paso, a mano y explicando cada comando: `central/GUIA-CLIENTES-INGESTA.md` del repo del laboratorio.
 En resumen:
 
-- **Alta**: comprobar la CA del cliente y su huella, crear su Secret `ingesta-ca-<cliente>` en
-  `ingesta.casClientes.namespace` (antes que el values), y añadirlo a `ingesta.clientes` y a `grafanaClusters`.
-- **Cambio de CA**: las dos CAs seguidas en el `ca.crt` del Secret; cuando el cliente use la nueva, solo esa.
-- **Baja**: primero el values (push y sync); cuando su ClientTrafficPolicy ya no exista, anotar el Secret con
-  `ingesta.borrable=true` y borrarlo.
+- **Alta**: su política y su AppRole en Vault (solo leer lo suyo), añadirlo a `ingesta.clientes` y a
+  `grafanaClusters`, y en el cliente `global.appName` y su acceso a Vault. Nada que copiar a mano.
+- **Renovación**: sola. cert-manager → PushSecret → Vault → ExternalSecret del cliente → Prometheus / Reloader.
+- **Cambio de CA** (cortar sus certificados ya): borrar `ca-<cliente>` (con la anotación) y `cliente-<cliente>`.
+- **Baja**: quitarlo del values (se borra también de Vault) y borrar a mano sus Secrets `ca-` y `cliente-`.
 
-Protecciones del Secret de CA (`casClientes.proteger`):
-- una ValidatingAdmissionPolicy que impide borrarlo sin la anotación, dejarlo sin PEM o quitarle la etiqueta
-  `ingesta.cliente`;
-- las alertas críticas `IngestaCASecretFalta` e `IngestaPoliticaClienteNoAplicada`.
-
-Lo que sigue siendo de personas: recibir el `ca.crt` del cliente y **comprobar su huella por otro canal** (es lo que
-evita dar de alta a un impostor) y, si se usa, su IP de salida.
+Lo que sigue siendo de personas: su IP de salida y, en Vault, su política y su AppRole.
 
 ## Requisitos del central
 
@@ -110,3 +109,6 @@ evita dar de alta a un impostor) y, si se usa, su IP de salida.
 - Métricas del Envoy en Prometheus (PodMonitor): la alerta de cliente sin datos usa `envoy_cluster_upstream_rq_xx`.
 - Un motor de NetworkPolicy en el clúster.
 - `ingesta.servidorTLS`: en producción, el certificado del wildcard `*.ingest.<dominio>`.
+- Para la entrega por Vault: External Secrets y un ClusterSecretStore (`ingesta.entrega.pushSecret.secretStoreRef`)
+  que pueda escribir en `<ruta>/*` y `rutaServidor`.
+- kube-state-metrics con `customResourceState` (values del chart): las alertas de política y de entrega lo usan.
