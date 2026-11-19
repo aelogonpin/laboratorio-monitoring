@@ -10,6 +10,13 @@ git diff main testing -- central/infra/aplicaciones/
 
 Los Argo CD de los dos clústeres leen esta rama (`targetRevision: testing`).
 
+**En cada VM, antes de nada** (si no, Fluent Bit muere con "Too many open files" al vigilar los logs):
+
+```bash
+printf 'fs.inotify.max_user_instances = 1024\nfs.inotify.max_user_watches = 1048576\n' | sudo tee /etc/sysctl.d/90-inotify.conf
+sudo sysctl --system
+```
+
 | Clase | Qué entra |
 |---|---|
 | 2 | `central/raiz.yaml` y local-path. Argo CD v3.6.1 se instala a mano (install.yaml estándar), fuera del repo |
