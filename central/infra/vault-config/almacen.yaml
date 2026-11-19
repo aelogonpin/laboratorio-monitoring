@@ -1,0 +1,31 @@
+# Almacén de ESO del central: entra en Vault con el AppRole "central" (escribe certificados en ingesta/).
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: vault
+spec:
+  provider:
+    vault:
+      server: http://vault.vault.svc:8200
+      path: ingesta
+      version: v2
+      auth:
+        appRole:
+          path: approle
+          roleId: d4ef68fa-bd5c-4c41-8aae-56f40dbbd870
+          secretRef: {name: vault-approle-central, key: secret-id, namespace: external-secrets}
+---
+# SOLO laboratorio: Vault accesible para el clúster cliente (hace de "el Vault corporativo al que llegan los clientes").
+# HTTP plano en el Gateway principal; en producción, Vault va con TLS y fuera de este clúster.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: vault
+  namespace: vault
+spec:
+  parentRefs:
+  - {name: principal, namespace: envoy-gateway-system}
+  hostnames: [vault.10.99.90.58.nip.io]
+  rules:
+  - backendRefs:
+    - {name: vault, port: 8200}

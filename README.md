@@ -19,5 +19,6 @@ Los Argo CD de los dos clústeres leen esta rama (`targetRevision: testing`).
 | 6 | `prometheus` (kube-prometheus-stack) y `tenant` (cortex-tenant) encendidos: el central se monitoriza y escribe en Mimir con el tenant `k0s-central`. Vuelve el PodMonitor de Envoy a `red/` |
 | 7 | Application `logging` (mismo chart, release `logging`, `values-logging.yaml`): Loki simple scalable sobre S3. Los interruptores del curso pasan a `values-curso.yaml` para no pisar a logging |
 | 8 | `grafana` encendido: Postgres `grafana-db`, HTTPRoute en `monitoring.10.99.90.58.nip.io/grafana`, datasources de Mimir y Loki por tenant (`grafanaClusters`) |
+| 9 | PKI: External Secrets Operator 2.15.0 y un Vault de laboratorio (0.34.1, modo dev) con KV `ingesta/`, AppRole `central` (escribe) y uno por cliente (solo lee lo suyo); ClusterSecretStore `vault` en el central; Vault expuesto en `vault.10.99.90.58.nip.io` para los clientes |
 
 Repo **público**: nada de credenciales reales, claves privadas ni kubeconfigs.

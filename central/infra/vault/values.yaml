@@ -1,0 +1,13 @@
+# Vault (chart oficial hashicorp/vault 0.34.1 = Vault 2.0.4), modo dev: un pod, en memoria, ya abierto (sin unseal).
+# SOLO laboratorio: el token raíz va en claro. En producción se usa el Vault corporativo.
+injector:
+  enabled: false
+server:
+  dev:
+    enabled: true
+    devRootToken: lab-f4dcfab657666fc455261494
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+    limits: {memory: 256Mi}
+ui:
+  enabled: true
