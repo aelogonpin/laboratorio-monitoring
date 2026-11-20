@@ -5,7 +5,7 @@ mTLS por cliente.
 
 ## Estructura
 
-**Umbrella chart de Helm** (2.x): cada componente es el chart oficial de su servicio, con versión exacta en
+**Umbrella chart de Helm** (3.x): cada componente es el chart oficial de su servicio, con versión exacta en
 `Chart.yaml`. Las plantillas propias (`templates/`) solo cubren lo que esos charts no traen. El chart no lleva nada de
 un entorno concreto: dominios, almacenamiento, Kafka, base de datos de Grafana, tenants y clientes van en un values
 aparte de cada entorno, y `values.schema.json` comprueba que estén.

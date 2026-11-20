@@ -2,6 +2,30 @@
 
 This file documents all notable changes to the monitoring-stack Helm Chart. The release numbering uses [semantic versioning](http://semver.org).
 
+## 3.0.0 Breaking Change
+
+- [Ingesta] **La CA de cada cliente la crea el central.** `templates/ingesta/pki.yaml` crea, por cliente, su CA
+  `ca-<cliente>` (10 años, `rotationPolicy: Never`, etiqueta `ingesta.ca`) y su certificado `cliente-<cliente>`
+  (`CN=<cliente>`, RSA 2048, 90 días, se renueva a falta de 30; por cliente con `clientes[].certificado`).
+  La ClientTrafficPolicy de cada listener confía solo en `ca-<cliente>`.
+- [Ingesta] Fuera los modos `cas` (CA del cliente en el values) y `caSecret` (CA del cliente en un Secret), y con
+  ellos `ingesta.casClientes`, el namespace `ingesta-clientes` y sus ReferenceGrant. Un cliente con `cas` o `caSecret`
+  hace fallar el chart con un mensaje.
+- [Ingesta] Nuevo `templates/ingesta/entrega.yaml` (`ingesta.entrega.pushSecret`): un PushSecret de External Secrets
+  por cliente sube `tls.crt` y `tls.key` a `<ruta>/<cliente>` del almacén (Vault), y otro la CA de servidor propia a
+  `rutaServidor`. Al quitar un cliente, se borra también de Vault (`deletionPolicy: Delete`). Nunca sube las CAs.
+- [Ingesta] La protección (`ingesta.proteger`, antes `casClientes.proteger`) pasa a los Secrets `ca-<cliente>` del
+  namespace de la release: no se borran sin `ingesta.borrable=true`, su `tls.crt` tiene que ser PEM y no se les quita
+  la etiqueta `ingesta.ca`.
+- [Alertas] Nuevas `IngestaCAClienteFalta` (critical) e `IngestaEntregaClienteFalla` (PushSecret que no sube; métrica
+  `ingesta_pushsecret_condicion` de kube-state-metrics). `IngestaCertificadoClientePorRenovar` pasa a
+  `IngestaCertificadoClienteSinRenovar`; esta y `IngestaCertificadoClienteCaducaPronto` son relativas a la hora de
+  renovación de cada certificado (fuera `ingesta.alertas.diasAviso`).
+- [Logging] `values-logging-operator.yaml`: output a `loki-gateway` (antes `logging-loki-gateway`) y `logLevel: info`.
+- Migración: quitar `cas` / `caSecret` de los clientes y `ingesta.casClientes`. Al subir, el central crea una CA
+  nueva por cliente: hay que entregarle su certificado nuevo (con `entrega.pushSecret`, solo) y, en el cliente,
+  dejar de usar su propia CA (`herramientas-cliente` 0.6.0, `ingesta.origen: vault`).
+
 ## 2.0.0 Breaking Change
 
 - [Ingesta] **De Traefik a Envoy Gateway + Gateway API**: fuera `templates/ingesta/traefik.yaml` (IngressRoute,

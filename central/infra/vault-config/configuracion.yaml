@@ -1,0 +1,78 @@
+# Configuración del Vault del LABORATORIO, aplicada una y otra vez (CronJob cada 2 min, idempotente): como Vault va en
+# modo dev (en memoria), tras un reinicio vuelve a quedar igual. Hace lo que en producción hace el equipo de Vault:
+#   - KV v2 en ingesta/:  ingesta/clientes/<cliente>  certificado y clave del cliente (los sube el central)
+#                         ingesta/servidor            CA del certificado de servidor del central (la sube el central)
+#   - AppRole "central":  escribe en clientes/* y servidor
+#   - AppRole por cliente: SOLO lee clientes/<él> y servidor (no puede leer el certificado de otro cliente)
+# Alta de un cliente en Vault: añadirlo a "clientes" y sus <cliente>-role-id / -secret-id a secretos.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-config
+  namespace: vault
+data:
+  clientes: "cliente-demo cliente-b"
+  configurar.sh: |
+    set -eu
+    export VAULT_ADDR=http://vault.vault.svc:8200
+    export VAULT_TOKEN="$(cat /creds/token-raiz)"
+    vault secrets list | grep -q '^ingesta/' || vault secrets enable -path=ingesta kv-v2
+    vault auth list | grep -q '^approle/' || vault auth enable approle
+
+    vault policy write central-ingesta - <<'P'
+    path "ingesta/data/clientes/*"     { capabilities = ["create", "read", "update", "delete"] }
+    path "ingesta/metadata/clientes/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+    path "ingesta/data/servidor"       { capabilities = ["create", "read", "update", "delete"] }
+    path "ingesta/metadata/servidor"   { capabilities = ["create", "read", "update", "delete", "list"] }
+    P
+
+    # rol <nombre> <política>: role_id y secret_id fijos (los de /creds), para que sobrevivan a un reinicio de Vault
+    rol() {
+      vault write -f "auth/approle/role/$1" token_policies="$2" token_ttl=1h token_max_ttl=4h secret_id_ttl=0 >/dev/null
+      vault write "auth/approle/role/$1/role-id" role_id="$(cat "/creds/$1-role-id")" >/dev/null
+      if ! vault write auth/approle/login role_id="$(cat "/creds/$1-role-id")" secret_id="$(cat "/creds/$1-secret-id")" >/dev/null 2>&1; then
+        vault write "auth/approle/role/$1/custom-secret-id" secret_id="$(cat "/creds/$1-secret-id")" >/dev/null
+      fi
+      echo "rol $1 -> $2"
+    }
+    rol central central-ingesta
+
+    for c in $(cat /config/clientes); do
+      vault policy write "cliente-$c" - <<P
+    path "ingesta/data/clientes/$c" { capabilities = ["read"] }
+    path "ingesta/data/servidor"    { capabilities = ["read"] }
+    P
+      rol "$c" "cliente-$c"
+    done
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vault-config
+  namespace: vault
+spec:
+  schedule: "*/2 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: configurar
+            image: hashicorp/vault:2.0.4
+            command: [sh, /config/configurar.sh]
+            resources:
+              requests: {cpu: 10m, memory: 32Mi}
+              limits: {memory: 128Mi}
+            volumeMounts:
+            - {name: config, mountPath: /config}
+            - {name: creds, mountPath: /creds}
+          volumes:
+          - name: config
+            configMap: {name: vault-config}
+          - name: creds
+            secret: {secretName: vault-laboratorio}

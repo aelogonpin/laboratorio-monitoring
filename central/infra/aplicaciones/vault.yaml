@@ -1,0 +1,56 @@
+# Vault del LABORATORIO: hace el papel del Vault corporativo (en producción ya existe y no se despliega aquí).
+# Modo dev (en memoria): si el pod se reinicia, vault-config lo vuelve a configurar y los PushSecret vuelven a subir.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  sources:
+  - repoURL: https://helm.releases.hashicorp.com
+    chart: vault
+    targetRevision: 0.34.1
+    helm:
+      releaseName: vault
+      valueFiles:
+      - $repo/central/infra/vault/values.yaml
+  - repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: main
+    ref: repo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+    - CreateNamespace=true
+    retry: {limit: 10, backoff: {duration: 20s, factor: 2, maxDuration: 5m}}
+---
+# Configuración del Vault del laboratorio (KV, AppRoles y políticas) y el ClusterSecretStore del central
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/aelogonpin/laboratorio-monitoring.git
+    targetRevision: main
+    path: central/infra/vault-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+    - CreateNamespace=true
+    - SkipDryRunOnMissingResource=true
+    retry: {limit: 10, backoff: {duration: 20s, factor: 2, maxDuration: 5m}}

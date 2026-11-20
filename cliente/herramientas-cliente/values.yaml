@@ -9,12 +9,13 @@ global:
   charts-version:
     cert-manager: &cert-manager-version v1.21.2
     reloader: &reloader-version 2.2.18
+    external-secrets: &external-secrets-version 2.15.0
 
 apps:
   ################
   # Cert Manager #
   ################
-  # Además de los certificados de las webs, crea y renueva la CA y el certificado de la ingesta mTLS.
+  # Certificados de las webs y el del webhook de admisión de kube-prometheus-stack (la ingesta ya no lo usa).
   cert-manager:
     enabled: true
     source:
@@ -37,7 +38,7 @@ apps:
   ##############
   ## Reloader ##
   ##############
-  # Reinicia Fluentd cuando cert-manager renueva el certificado (Fluentd solo lo lee al arrancar).
+  # Reinicia Fluentd cuando cambia el certificado de la ingesta (Fluentd solo lo lee al arrancar).
   reloader:
     enabled: true
     source:
@@ -53,4 +54,26 @@ apps:
     syncPolicy:
       managedNamespaceMetadata: {labels: {monitoring: "true"}}
       syncOptions: [CreateNamespace=true]
+      automated: {prune: true, selfHeal: true}
+  ######################
+  ## External Secrets ##
+  ######################
+  # Trae de Vault el certificado de la ingesta mTLS (ExternalSecret de templates/ingesta-mtls.yaml).
+  external-secrets:
+    enabled: true
+    source:
+      chart: external-secrets
+      repoURL: https://charts.external-secrets.io
+      targetRevision: *external-secrets-version
+      helm:
+        valuesObject:
+          installCRDs: true
+          serviceMonitor: {enabled: true}
+          resources: {requests: {cpu: 10m, memory: 64Mi}, limits: {memory: 256Mi}}
+          webhook: {resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}}
+          certController: {resources: {requests: {cpu: 10m, memory: 64Mi}, limits: {memory: 256Mi}}}
+    destination: {namespace: external-secrets}
+    syncPolicy:
+      managedNamespaceMetadata: {labels: {monitoring: "true"}}
+      syncOptions: [CreateNamespace=true, ServerSideApply=true]
       automated: {prune: true, selfHeal: true}

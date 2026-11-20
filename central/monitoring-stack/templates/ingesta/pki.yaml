@@ -1,6 +1,7 @@
 {{- /* Ingesta mTLS de clientes externos (global.monitoring.ingesta). Valores: .Values.ingesta; clientes: ingesta.clientes. */ -}}
 {{- if include "ms.globalFlag" (dict "root" $ "path" "monitoring.ingesta") }}
-# Emisor autofirmado: crea la CA de cada cliente (y la de servidor de laboratorio)
+# CA en el central: por cada cliente, su CA y su certificado de cliente (la clave se genera aquí y se entrega con
+# entrega.pushSecret o a mano). Emisor autofirmado: crea la CA de cada cliente (y la de servidor de laboratorio)
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata: {name: ingesta-autofirmado, namespace: {{ .Release.Namespace }}}
@@ -40,28 +41,11 @@ spec:
   issuerRef: {name: {{ $issuer.name }}, kind: {{ $issuer.kind | default "Issuer" }}}
 {{- end }}
 {{- range (include "ms.ingesta.clientes" $ | fromJsonArray) }}
-{{- if .cas }}
-{{- $c := . }}
-{{- range $i, $pem := .cas }}
+{{- $cert := merge (deepCopy (.certificado | default dict)) $.Values.ingesta.certCliente }}
 ---
-# Modo "CA en el cliente": solo la parte PÚBLICA de la CA de {{ $c.nombre }} (no es secreto).
-# Su cert-manager emite y renueva el certificado; aquí no cambia nada mientras la CA sea la misma.
-apiVersion: v1
-kind: Secret
-metadata:
-  name: ca-{{ $c.nombre }}-{{ $i }}
-  namespace: {{ $.Release.Namespace }}
-  labels: {ingesta.cliente: {{ $c.nombre }}}
-type: Opaque
-stringData:
-  ca.crt: |
-{{ $pem | trim | indent 4 }}
-{{- end }}
-{{- else if .caSecret }}
-{{- /* Modo "CA en el cliente" con su CA en un Secret externo: aquí no se crea nada (ver envoy.yaml) */}}
-{{- else }}
----
-# CA propia de {{ .nombre }}: solo firma su certificado. keep: si se borra, el certificado del cliente deja de valer.
+# CA propia de {{ .nombre }}: solo firma su certificado, y su listener solo confía en ella. La etiqueta ingesta.ca
+# pone su Secret bajo la protección de proteccion.yaml: si se borra, cert-manager crearía OTRA CA y el certificado
+# que tiene el cliente dejaría de valer (y mientras falta, el listener no exige certificado).
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -72,9 +56,11 @@ metadata:
 spec:
   isCA: true
   secretName: ca-{{ .nombre }}
+  secretTemplate:
+    labels: {ingesta.ca: {{ .nombre }}}
   commonName: ingesta-ca-{{ .nombre }}
   duration: {{ $.Values.ingesta.certCliente.caDuracion }}
-  privateKey: {algorithm: ECDSA, size: 256}
+  privateKey: {algorithm: ECDSA, size: 256, rotationPolicy: Never}
   issuerRef: {name: ingesta-autofirmado}
 ---
 apiVersion: cert-manager.io/v1
@@ -82,7 +68,8 @@ kind: Issuer
 metadata: {name: ca-{{ .nombre }}, namespace: {{ $.Release.Namespace }}}
 spec: {ca: {secretName: ca-{{ .nombre }}}}
 ---
-# Certificado de cliente de {{ .nombre }} (lo que se le entrega con scripts/exportar-cliente.sh)
+# Certificado de cliente de {{ .nombre }}: cert-manager lo renueva solo (renewBefore) y la entrega (PushSecret a
+# Vault, o a mano en el laboratorio) lo lleva al cliente. RSA: el plugin Loki de Fluentd no acepta ECDSA.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -91,13 +78,14 @@ metadata:
   labels: {ingesta.cliente: {{ .nombre }}}
 spec:
   secretName: cliente-{{ .nombre }}
+  secretTemplate:
+    labels: {ingesta.cliente: {{ .nombre }}}
   commonName: {{ .nombre }}
   usages: [client auth, digital signature]
-  duration: {{ $.Values.ingesta.certCliente.duracion }}
-  renewBefore: {{ $.Values.ingesta.certCliente.renovarAntes }}
-  privateKey: {algorithm: {{ $.Values.ingesta.certCliente.algoritmo }}, size: {{ $.Values.ingesta.certCliente.tamano }}, rotationPolicy: Always}
+  duration: {{ $cert.duracion }}
+  renewBefore: {{ $cert.renovarAntes }}
+  privateKey: {algorithm: {{ $cert.algoritmo }}, size: {{ $cert.tamano }}, rotationPolicy: Always}
   issuerRef: {name: ca-{{ .nombre }}}
-{{- end }}
 {{- end }}
 
 {{- end }}

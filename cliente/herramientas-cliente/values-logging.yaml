@@ -74,7 +74,7 @@ apps:
                     # Antes: https://loki.monitoring.<dominio> + tenant CLUSTER_NAME + lokiUser/lokiPass
                     # Host del cliente = CLUSTER_NAME. Comillas DENTRO del valor: Fluentd solo evalúa #{...} entre comillas.
                     url: |-
-                      "https://#{ENV['CLUSTER_NAME']}.ingest.10.99.90.223.nip.io"
+                      "https://#{ENV['CLUSTER_NAME']}.ingest.10.99.90.58.nip.io"
                     # El plugin quiere RUTAS de fichero: mountFrom (valueFrom falla con ENAMETOOLONG)
                     cert: {mountFrom: {secretKeyRef: {name: ingesta-mtls, key: tls.crt}}}
                     key: {mountFrom: {secretKeyRef: {name: ingesta-mtls, key: tls.key}}}

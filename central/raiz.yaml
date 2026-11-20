@@ -1,9 +1,7 @@
 # Aplicación raíz del central: lo único que se aplica a mano (kubectl apply -f central/raiz.yaml).
-# Crea, por olas (sync-wave), las Applications de:
-#   central/infra/aplicaciones/              base del clúster (-5 a -3): namespaces y Secrets, local-path, CRDs,
-#                                            MetalLB, Envoy Gateway, cert-manager, CNPG, SeaweedFS, Gateway, grafana-db
-#   central/monitoring-laboratorio/argocd/   kafka (0), monitoring y logging (1)
-# Cada ola espera a que la anterior esté Healthy (health de Application activada en central/infra/argocd/values.yaml).
+# Crea las Applications de central/infra/aplicaciones/ (base del clúster) y central/monitoring-laboratorio/argocd/
+# (kafka, monitoring, logging, logging-operator), ordenadas por sync-wave. Argo CD va instalado a mano, estándar
+# (install.yaml v3.6.1 + timeout de sync, ver GUIA-MONTAJE.md), y no se gestiona desde este repo.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

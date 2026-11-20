@@ -1,7 +1,7 @@
 {{- /*
 Ingesta mTLS de clientes externos con Gateway API + Envoy Gateway (global.monitoring.ingesta).
 Por cliente: un listener HTTPS (<cliente>.<dominio>) en el Gateway de la ingesta, una ClientTrafficPolicy que solo
-acepta certificados de SU CA en ese listener, una HTTPRoute que solo deja las rutas de envío y fija el tenant, y,
+acepta certificados de SU CA (la crea pki.yaml) en ese listener, una HTTPRoute que solo deja las rutas de envío y fija el tenant, y,
 si tiene ipPermitidas, una SecurityPolicy. Valores: .Values.ingesta; clientes: ingesta.clientes.
 */ -}}
 {{- if include "ms.globalFlag" (dict "root" $ "path" "monitoring.ingesta") }}
@@ -43,23 +43,6 @@ spec:
 {{- range $clientes }}
 {{- $c := . }}
 {{- $tenant := include "ms.ingesta.tenant" . }}
-{{- if .cas }}
----
-# Modo "CA en el cliente": solo la parte PÚBLICA de su CA (no es secreto). Varias = cambio de CA sin corte
-# (Envoy admite una sola referencia: van todas en el mismo ca.crt).
-apiVersion: v1
-kind: Secret
-metadata:
-  name: ingesta-ca-{{ .nombre }}
-  namespace: {{ $ns }}
-  labels: {ingesta.cliente: {{ .nombre }}}
-type: Opaque
-stringData:
-  ca.crt: |
-{{- range .cas }}
-{{ . | trim | indent 4 }}
-{{- end }}
-{{- end }}
 ---
 # Solo certificados firmados por la CA de {{ .nombre }}, solo en su listener
 apiVersion: gateway.envoyproxy.io/v1alpha1
@@ -75,18 +58,9 @@ spec:
     minVersion: "1.2"
     clientValidation:
       caCertificateRefs:
-      {{- if .caSecret }}
-      {{- $ref := include "ms.ingesta.caRef" (dict "c" . "root" $) | fromJson }}
-      # Secret que NO crea el chart (a mano o External Secrets: GUIA-CLIENTES-INGESTA.md): clave ca.crt
-      - kind: Secret
-        name: {{ $ref.name }}
-        {{- if ne $ref.namespace $ns }}
-        namespace: {{ $ref.namespace }}
-        {{- end }}
-      {{- else }}
-      - kind: Secret
-        name: {{ if .cas }}ingesta-ca-{{ .nombre }}{{ else }}ca-{{ .nombre }}{{ end }}
-      {{- end }}
+      # CA de {{ .nombre }} (pki.yaml). Si falta o no vale, la política no se aplica y el listener NO exige
+      # certificado: la protegen proteccion.yaml y las alertas IngestaCAClienteFalta e IngestaPoliticaClienteNoAplicada.
+      - {kind: Secret, name: ca-{{ .nombre }}}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -141,36 +115,6 @@ spec:
       principal:
         clientCIDRs: {{ toJson .ipPermitidas }}
 {{- end }}
-{{- end }}
-{{- /* Namespaces de los Secrets de CA (modo caSecret) distintos del de la release: ReferenceGrant para las
-ClientTrafficPolicy y, si es el de casClientes y crearNamespace, el Namespace. */}}
-{{- $nsCas := list }}
-{{- range $clientes }}
-{{- if .caSecret }}
-{{- $ref := include "ms.ingesta.caRef" (dict "c" . "root" $) | fromJson }}
-{{- if and (ne $ref.namespace $ns) (not (has $ref.namespace $nsCas)) }}{{ $nsCas = append $nsCas $ref.namespace }}{{ end }}
-{{- end }}
-{{- end }}
-{{- range $nsCas }}
-{{- if and $.Values.ingesta.casClientes.crearNamespace (eq . $.Values.ingesta.casClientes.namespace) }}
----
-# Namespace de las CAs de los clientes. Nunca se borra con la Application: ahí están los Secrets que no son del chart.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: {{ . }}
-  annotations:
-    argocd.argoproj.io/sync-options: Delete=false
-    helm.sh/resource-policy: keep
-{{- end }}
----
-# Las ClientTrafficPolicy de la ingesta ({{ $ns }}) pueden leer las CAs de clientes de este namespace
-apiVersion: gateway.networking.k8s.io/v1beta1
-kind: ReferenceGrant
-metadata: {name: ingesta-cas-desde-{{ $ns }}, namespace: {{ . }}}
-spec:
-  from: [{group: gateway.envoyproxy.io, kind: ClientTrafficPolicy, namespace: {{ $ns }}}]
-  to: [{group: "", kind: Secret}]
 {{- end }}
 {{- $otros := list }}
 {{- range (list $.Values.ingesta.backends.loki $.Values.ingesta.backends.mimir $.Values.ingesta.cortexTenant) }}

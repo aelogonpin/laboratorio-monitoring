@@ -28,7 +28,7 @@ operator:
 
     fluentdDisabled: false
     fluentd:
-      logLevel: debug
+      logLevel: info
       envVars:
       - name: CLUSTER_NAME
         valueFrom:
@@ -144,7 +144,7 @@ operator:
     - name: loki
       spec:
         loki:
-          url: http://logging-loki-gateway.logging.svc.cluster.local
+          url: http://loki-gateway.logging.svc.cluster.local
           tenant: |-
             "#{ENV['CLUSTER_NAME']}"
           username:

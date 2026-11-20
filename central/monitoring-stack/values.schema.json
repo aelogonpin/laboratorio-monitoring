@@ -72,46 +72,61 @@
               "metricasPorCortexTenant": {
                 "type": "boolean"
               },
-              "cas": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "pattern": "BEGIN CERTIFICATE"
-                }
-              },
-              "caSecret": {
-                "oneOf": [
-                  {
-                    "type": "boolean"
+              "certificado": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "duracion": {
+                    "type": "string"
                   },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                      "name": {
-                        "type": "string"
-                      },
-                      "namespace": {
-                        "type": "string"
-                      }
-                    }
+                  "renovarAntes": {
+                    "type": "string"
                   }
-                ]
+                }
               }
             }
           }
         },
-        "casClientes": {
+        "proteger": {
+          "type": "boolean"
+        },
+        "entrega": {
           "type": "object",
           "properties": {
-            "namespace": {
-              "type": "string"
-            },
-            "crearNamespace": {
-              "type": "boolean"
-            },
-            "proteger": {
-              "type": "boolean"
+            "pushSecret": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "secretStoreRef": {
+                  "type": "object",
+                  "required": [
+                    "name"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "enum": [
+                        "ClusterSecretStore",
+                        "SecretStore"
+                      ]
+                    }
+                  }
+                },
+                "ruta": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "rutaServidor": {
+                  "type": "string"
+                },
+                "refreshInterval": {
+                  "type": "string"
+                }
+              }
             }
           }
         }

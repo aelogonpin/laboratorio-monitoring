@@ -1,0 +1,15 @@
+# External Secrets Operator (chart oficial external-secrets/external-secrets 2.15.0).
+installCRDs: true
+serviceMonitor:
+  enabled: true
+resources:
+  requests: {cpu: 10m, memory: 64Mi}
+  limits: {memory: 256Mi}
+webhook:
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+certController:
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+    limits: {memory: 256Mi}

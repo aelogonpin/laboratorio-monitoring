@@ -1,4 +1,4 @@
-# Values del LABORATORIO (k0s-central) para el chart monitoring-stack 2.x. Se aplica encima del values del chart en
+# Values del LABORATORIO (k0s-central) para el chart monitoring-stack 3.x. Se aplica encima del values del chart en
 # las Applications monitoring y logging (argocd/). Todo lo que hay aquí es propio de este entorno o de pruebas.
 global:
   defaultStorageClass: local-path
@@ -10,11 +10,11 @@ global:
     bootstrap: kafka-kafka-bootstrap.monitoring.svc.cluster.local:9092
   hosts:
     esquema: http
-    monitoring: monitoring.10.99.90.223.nip.io
+    monitoring: monitoring.10.99.90.58.nip.io
   parameters:
     clusterName: k0s-central
     # el tenant de cada cliente (central/GUIA-CLIENTES-INGESTA.md)
-    grafanaClusters: k0s-central|cliente-demo
+    grafanaClusters: k0s-central|cliente-demo|cliente-b
 grafana:
   route:
     main:
@@ -75,16 +75,25 @@ loki:
     persistence:
       storageClass: local-path
 ingesta:
-  dominio: ingest.10.99.90.223.nip.io
-  # CA de servidor propia del laboratorio (los clientes la fijan como servidorCA)
+  dominio: ingest.10.99.90.58.nip.io
+  # CA de servidor propia del laboratorio: se sube a Vault (ingesta/servidor) y los clientes la bajan
   servidorTLS:
     crear: true
-  # Clientes de la ingesta mTLS. Aquí solo el nombre: su CA pública va en el Secret ingesta-ca-<nombre> del
-  # namespace ingesta-clientes (ingesta.casClientes), que se crea a mano antes, no Argo CD.
-  # Alta, cambio de CA y baja: central/GUIA-CLIENTES-INGESTA.md
-  # (cliente-demo: k0s-cliente, 10.99.90.179/32)
+  # El central crea la CA y el certificado de cada cliente y los sube a Vault (Vault del laboratorio: infra/vault/);
+  # cada cliente los baja con su ExternalSecret.
+  entrega:
+    pushSecret:
+      enabled: true
+      # Laboratorio: 5 min como tope para ver las renovaciones (una renovación normal llega en segundos; un Secret
+      # borrado y recreado, en la siguiente vuelta o anotando el PushSecret con force-sync=<fecha>)
+      refreshInterval: 5m
+  # Clientes de la ingesta mTLS. Alta, entrega y baja: central/GUIA-CLIENTES-INGESTA.md
   clientes:
-    # Alta 2026-11-13. Huella SHA-256 de la CA: 07:36:D1:F6:35:2D:7E:1D:40:62:03:FB:15:11:CF:69:B5:50:81:4E:B5:79:B9:D3:31:E2:03:9F:D1:2E:E0:3D
+    # Alta 2026-11-19. k0s-cliente (10.99.90.218). Laboratorio: certificado de 1 h renovado a falta de 40 min (cada
+    # ~20 min) para ver la cadena de renovación entera; en producción, los 90 días del chart.
     - nombre: cliente-demo
-      caSecret: true
-      ipPermitidas: [10.99.90.179/32]
+      ipPermitidas: [10.99.90.218/32]
+      certificado: {duracion: 1h, renovarAntes: 40m}
+    # Alta 2026-11-19. k0s-cliente-b (10.99.90.254). Certificado con la duración del chart (90 días, renueva a 30).
+    - nombre: cliente-b
+      ipPermitidas: [10.99.90.254/32]

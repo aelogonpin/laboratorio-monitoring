@@ -685,10 +685,29 @@ prometheus:
                   path: [status, ancestors, "0", conditions]
                   labelsFromPath: {type: [type]}
                   valueFrom: [status]
+          # Estado de los PushSecret de la entrega por Vault (alerta IngestaEntregaClienteFalla)
+          # ingesta_pushsecret_condicion{name, namespace, type} = 1 si la condición es True.
+          - groupVersionKind: {group: external-secrets.io, version: v1alpha1, kind: PushSecret}
+            metricNamePrefix: ingesta_pushsecret
+            labelsFromPath:
+              name: [metadata, name]
+              namespace: [metadata, namespace]
+            metrics:
+            - name: condicion
+              help: "Condiciones del PushSecret (1 = True)"
+              each:
+                type: Gauge
+                gauge:
+                  path: [status, conditions]
+                  labelsFromPath: {type: [type]}
+                  valueFrom: [status]
     rbac:
       extraRules:
       - apiGroups: [gateway.envoyproxy.io]
         resources: [clienttrafficpolicies]
+        verbs: [list, watch]
+      - apiGroups: [external-secrets.io]
+        resources: [pushsecrets]
         verbs: [list, watch]
   prometheusOperator:
     admissionWebhooks:
@@ -855,12 +874,29 @@ ingesta:
     secretName: ingesta-servidor-tls
     crear: false
     issuerRef: {}
+  # Certificados de los clientes (pki.yaml): el central crea la CA de cada cliente y su certificado de cliente.
+  # Cada cliente puede cambiar duracion/renovarAntes con clientes[].certificado. Con entrega por Vault, renovarAntes
+  # es el margen para arreglar la entrega antes de que caduque el certificado que tiene el cliente.
   certCliente:
-    duracion: 8760h
-    renovarAntes: 720h
-    caDuracion: 87600h
-    algoritmo: RSA
+    duracion: 2160h       # 90 días
+    renovarAntes: 720h    # se renueva a falta de 30
+    caDuracion: 87600h    # CA de cada cliente: 10 años (rotationPolicy Never: renovarla no cambia su clave)
+    algoritmo: RSA        # el plugin Loki de Fluentd no acepta ECDSA
     tamano: 2048
+  # Entrega del certificado de cada cliente (templates/ingesta/entrega.yaml). pushSecret: External Secrets lo sube
+  # a <ruta>/<cliente> del almacén (Vault) y el cliente lo baja con un ExternalSecret. Apagado: entrega a mano.
+  entrega:
+    pushSecret:
+      enabled: false
+      secretStoreRef: {name: vault, kind: ClusterSecretStore}
+      ruta: clientes
+      # CA del certificado de servidor, solo si es propia (servidorTLS.crear sin issuerRef). Vacío = no se sube.
+      rutaServidor: servidor
+      refreshInterval: 1h
+  # ValidatingAdmissionPolicy sobre las CAs de los clientes (templates/ingesta/proteccion.yaml): no se pueden borrar
+  # sin la anotación ingesta.borrable=true. Las alertas IngestaCAClienteFalta e IngestaPoliticaClienteNoAplicada
+  # avisan si aun así falta.
+  proteger: true
   # Máximo por envío (BackendTrafficPolicy requestBuffer: 413 si se pasa)
   limiteCuerpo: 50Mi
   backends:
@@ -886,26 +922,11 @@ ingesta:
     internosPermitidos: []
   alertas:
     enabled: true
-    diasAviso: 35
     sinDatos: {enabled: true, minutos: 30}
     serviceMonitorCertManager:
       enabled: true
       namespace: cert-manager
       selector: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/component: controller}
-  # CAs de los clientes con caSecret (modo "CA en el cliente"): un Secret por cliente que NO crea el chart
-  # (a mano, ver central/GUIA-CLIENTES-INGESTA.md, o External Secrets), ingesta-ca-<cliente> con la clave ca.crt. Varias CAs seguidas en el
-  # mismo ca.crt = cambio de CA sin corte. Namespace vacío = el de la release. Si es otro, el chart pone la
-  # ReferenceGrant y, con crearNamespace, el Namespace (Delete=false: no se borra con la Application).
-  casClientes:
-    namespace: ingesta-clientes
-    crearNamespace: true
-    # ValidatingAdmissionPolicy (templates/ingesta/proteccion.yaml): no se pueden borrar sin la anotación
-    # ingesta.borrable=true ni dejar sin certificado. Las alertas IngestaCASecretFalta e
-    # IngestaPoliticaClienteNoAplicada avisan si aun así falta.
-    proteger: true
-  # Cada cliente: nombre y su CA de una de estas formas:
-  #   caSecret: true                  -> Secret ingesta-ca-<nombre> en casClientes.namespace (recomendado)
-  #   caSecret: {name: x, namespace: y}
-  #   cas: [PEM, ...]                 -> la CA en el propio values
-  #   (ninguna)                       -> CA en el central: el central emite el certificado del cliente
+  # Clientes: nombre (= global.appName del cliente, tenant por defecto) y, opcionales, tenant, ipPermitidas, senales,
+  # metricasPorCortexTenant y certificado: {duracion, renovarAntes}. Alta y baja: central/GUIA-CLIENTES-INGESTA.md
   clientes: []

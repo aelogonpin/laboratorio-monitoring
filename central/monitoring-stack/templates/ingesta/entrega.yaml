@@ -1,0 +1,52 @@
+{{- /*
+Entrega de los certificados a los clientes (ingesta.entrega.pushSecret): un PushSecret de External Secrets por
+cliente sube su certificado y su clave (Secret cliente-<cliente>, pki.yaml) a <ruta>/<cliente> del almacén (Vault),
+de donde lo baja el ExternalSecret del cliente. Cada vez que cert-manager lo renueva, el PushSecret lo vuelve a
+subir (refreshInterval). Si el certificado de servidor es de una CA propia (servidorTLS.crear sin issuerRef), sube
+también esa CA a rutaServidor, para que los clientes confíen en el servidor.
+Sin entrega.pushSecret: la entrega es a mano (laboratorio: GUIA-CLIENTES-INGESTA.md).
+*/ -}}
+{{- if include "ms.globalFlag" (dict "root" $ "path" "monitoring.ingesta") }}
+{{- with .Values.ingesta.entrega.pushSecret }}
+{{- if .enabled }}
+{{- $p := . }}
+{{- range (include "ms.ingesta.clientes" $ | fromJsonArray) }}
+---
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
+metadata:
+  name: ingesta-{{ .nombre }}
+  namespace: {{ $.Release.Namespace }}
+  labels: {ingesta.cliente: {{ .nombre }}}
+spec:
+  refreshInterval: {{ $p.refreshInterval }}
+  updatePolicy: Replace
+  # Baja: al quitar el cliente del values se borra también de Vault
+  deletionPolicy: Delete
+  secretStoreRefs: [{{ toJson $p.secretStoreRef }}]
+  selector: {secret: {name: cliente-{{ .nombre }}}}
+  data:
+  # Solo el certificado y la clave del cliente: nunca la CA (ca-<cliente>, con su clave privada)
+  - match: {secretKey: tls.crt, remoteRef: {remoteKey: {{ printf "%s/%s" $p.ruta .nombre }}, property: tls.crt}}
+  - match: {secretKey: tls.key, remoteRef: {remoteKey: {{ printf "%s/%s" $p.ruta .nombre }}, property: tls.key}}
+{{- end }}
+{{- if and $p.rutaServidor $.Values.ingesta.servidorTLS.crear (not $.Values.ingesta.servidorTLS.issuerRef.name) }}
+---
+# CA del certificado de servidor (solo la parte pública: ca.crt)
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
+metadata:
+  name: ingesta-ca-servidor
+  namespace: {{ $.Release.Namespace }}
+spec:
+  refreshInterval: {{ $p.refreshInterval }}
+  updatePolicy: Replace
+  deletionPolicy: Delete
+  secretStoreRefs: [{{ toJson $p.secretStoreRef }}]
+  selector: {secret: {name: ingesta-ca-servidor}}
+  data:
+  - match: {secretKey: ca.crt, remoteRef: {remoteKey: {{ $p.rutaServidor }}, property: ca.crt}}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

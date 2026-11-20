@@ -5,8 +5,8 @@ description: >-
   por cliente. Cada componente es el chart oficial de su servicio; las plantillas propias solo cubren lo que esos
   charts no traen. Lo propio de cada entorno (dominios, almacenamiento, Kafka, clientes) va en un values aparte.
 type: application
-version: 2.0.0
-appVersion: v2.0.0
+version: 3.0.0
+appVersion: v3.0.0
 kubeVersion: ">=1.32.0-0"
 keywords: [monitoring, grafana, mimir, loki, prometheus, mtls]
 
